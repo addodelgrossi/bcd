@@ -74,30 +74,40 @@ jobs:
         run: |
           go build -v -trimpath -ldflags="-s -w -X github.com/addodelgrossi/bcd/cmd.Version=${{ steps.version.outputs.VERSION }}" -o bcd${{ matrix.os == 'windows' && '.exe' || '' }}
 
-      - name: Create archive
+      - name: Create archive (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
+        run: |
+          $VERSION = "${{ steps.version.outputs.VERSION }}"
+          $ARCHIVE_NAME = "bcd-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}.zip"
+          Compress-Archive -Path bcd.exe -DestinationPath $ARCHIVE_NAME
+          echo "ASSET=$ARCHIVE_NAME" >> $env:GITHUB_ENV
+
+      - name: Create archive (Unix)
+        if: matrix.os != 'windows'
         shell: bash
         run: |
           VERSION=${{ steps.version.outputs.VERSION }}
-          ARCHIVE_NAME="bcd-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
+          ARCHIVE_NAME="bcd-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          tar czf "${ARCHIVE_NAME}" bcd
+          echo "ASSET=${ARCHIVE_NAME}" >> $GITHUB_ENV
 
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            zip "${ARCHIVE_NAME}.zip" bcd.exe
-            echo "ASSET=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
-          else
-            tar czf "${ARCHIVE_NAME}.tar.gz" bcd
-            echo "ASSET=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
-          fi
-
-      - name: Generate checksum
-        shell: bash
+      - name: Generate checksum (Windows)
+        if: matrix.os == 'windows'
+        shell: pwsh
         run: |
-          if [ "${{ matrix.os }}" = "windows" ]; then
-            sha256sum "${ASSET}" > "${ASSET}.sha256"
-          elif [ "${{ matrix.os }}" = "darwin" ]; then
-            shasum -a 256 "${ASSET}" > "${ASSET}.sha256"
-          else
-            sha256sum "${ASSET}" > "${ASSET}.sha256"
-          fi
+          $hash = Get-FileHash -Algorithm SHA256 -Path $env:ASSET
+          "$($hash.Hash.ToLower())  $env:ASSET" | Out-File -FilePath "$env:ASSET.sha256" -Encoding ASCII
+
+      - name: Generate checksum (macOS)
+        if: matrix.os == 'darwin'
+        shell: bash
+        run: shasum -a 256 "${ASSET}" > "${ASSET}.sha256"
+
+      - name: Generate checksum (Linux)
+        if: matrix.os == 'linux'
+        shell: bash
+        run: sha256sum "${ASSET}" > "${ASSET}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
