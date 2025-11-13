@@ -1,0 +1,195 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          # Linux
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+
+          # macOS
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+
+          # Windows
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+          - os: windows
+            arch: arm64
+            runner: windows-latest
+            goos: windows
+            goarch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          go build -v -trimpath -ldflags="-s -w -X github.com/addodelgrossi/bcd/cmd.Version=${{ steps.version.outputs.VERSION }}" -o bcd${{ matrix.os == 'windows' && '.exe' || '' }}
+
+      - name: Create archive
+        shell: bash
+        run: |
+          VERSION=${{ steps.version.outputs.VERSION }}
+          ARCHIVE_NAME="bcd-${VERSION}-${{ matrix.os }}-${{ matrix.arch }}"
+
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            zip "${ARCHIVE_NAME}.zip" bcd.exe
+            echo "ASSET=${ARCHIVE_NAME}.zip" >> $GITHUB_ENV
+          else
+            tar czf "${ARCHIVE_NAME}.tar.gz" bcd
+            echo "ASSET=${ARCHIVE_NAME}.tar.gz" >> $GITHUB_ENV
+          fi
+
+      - name: Generate checksum
+        shell: bash
+        run: |
+          if [ "${{ matrix.os }}" = "windows" ]; then
+            sha256sum "${ASSET}" > "${ASSET}.sha256"
+          elif [ "${{ matrix.os }}" = "darwin" ]; then
+            shasum -a 256 "${ASSET}" > "${ASSET}.sha256"
+          else
+            sha256sum "${ASSET}" > "${ASSET}.sha256"
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            ${{ env.ASSET }}
+            ${{ env.ASSET }}.sha256
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          find artifacts -type f -exec mv {} release-assets/ \;
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Generate release notes
+        id: notes
+        run: |
+          cat > release-notes.md << 'EOF'
+          ## Brazil Companies Database v${{ steps.version.outputs.VERSION }}
+
+          ### Download
+
+          Escolha o binário apropriado para sua plataforma:
+
+          | Plataforma | Arquitetura | Download |
+          |------------|-------------|----------|
+          | Linux | x86_64 | `bcd-${{ steps.version.outputs.VERSION }}-linux-amd64.tar.gz` |
+          | Linux | ARM64 | `bcd-${{ steps.version.outputs.VERSION }}-linux-arm64.tar.gz` |
+          | macOS | Intel | `bcd-${{ steps.version.outputs.VERSION }}-darwin-amd64.tar.gz` |
+          | macOS | Apple Silicon | `bcd-${{ steps.version.outputs.VERSION }}-darwin-arm64.tar.gz` |
+          | Windows | x86_64 | `bcd-${{ steps.version.outputs.VERSION }}-windows-amd64.zip` |
+          | Windows | ARM64 | `bcd-${{ steps.version.outputs.VERSION }}-windows-arm64.zip` |
+
+          ### Instalação
+
+          **Linux/macOS:**
+          ```bash
+          # Extrair o arquivo
+          tar xzf bcd-${{ steps.version.outputs.VERSION }}-<OS>-<ARCH>.tar.gz
+
+          # Mover para o PATH (opcional)
+          sudo mv bcd /usr/local/bin/
+
+          # Verificar instalação
+          bcd --version
+          ```
+
+          **Windows:**
+          ```powershell
+          # Extrair o ZIP e adicionar ao PATH
+          # Verificar instalação
+          bcd.exe --version
+          ```
+
+          ### Checksums SHA256
+
+          Verifique a integridade dos arquivos baixados usando os arquivos `.sha256` incluídos:
+
+          ```bash
+          sha256sum -c bcd-${{ steps.version.outputs.VERSION }}-<OS>-<ARCH>.tar.gz.sha256
+          ```
+
+          ### Mudanças
+
+          - _Adicione suas mudanças aqui_
+          EOF
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*
+          body_path: release-notes.md
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

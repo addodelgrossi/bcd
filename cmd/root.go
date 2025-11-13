@@ -14,11 +14,14 @@ var (
 	flagWorkdir   string
 	flagOutDB     string
 	logger        *slog.Logger
+	// Version is set via ldflags during build
+	Version = "dev"
 )
 
 var RootCmd = &cobra.Command{
-	Use:   "cnpj",
-	Short: "CNPJ OpenData → SQLite loader",
+	Use:     "bcd",
+	Short:   "Brazil Companies Database - CNPJ OpenData → SQLite loader",
+	Version: Version,
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 		lvl := new(slog.LevelVar)
 		lvl.Set(slog.LevelInfo)
