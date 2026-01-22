@@ -239,16 +239,24 @@ func txInsert(ctx context.Context, db *sql.DB, table string, cols []string, iter
 	if err != nil {
 		return err
 	}
+
+	// Defer rollback - será ignorado se commit for bem-sucedido
+	defer func() {
+		if err := tx.Rollback(); err != nil && err != sql.ErrTxDone {
+			logger.Error("rollback failed", slog.String("table", table), slog.String("error", err.Error()))
+		}
+	}()
+
 	place := make([]string, len(cols))
 	for i := range cols {
 		place[i] = "?"
 	}
 	stmt, err := tx.PrepareContext(ctx, fmt.Sprintf("INSERT OR REPLACE INTO %s(%s) VALUES(%s)", table, strings.Join(cols, ","), strings.Join(place, ",")))
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
 	defer stmt.Close()
+
 	count := 0
 	lastLog := time.Now()
 	flush := func(vals []any) error { _, err := stmt.ExecContext(ctx, vals...); return err }
@@ -264,9 +272,9 @@ func txInsert(ctx context.Context, db *sql.DB, table string, cols []string, iter
 		return nil
 	})
 	if err != nil {
-		tx.Rollback()
 		return err
 	}
+
 	if err := tx.Commit(); err != nil {
 		return err
 	}
