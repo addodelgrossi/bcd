@@ -16,6 +16,8 @@ Plataformas suportadas:
 - **macOS**: Intel (AMD64), Apple Silicon (ARM64)
 - **Windows**: AMD64, ARM64
 
+> 💡 **Nota de Portabilidade:** O arquivo `.sqlite` gerado é **100% portável** entre todas as plataformas. Você pode gerar o banco em Linux x86_64 e usar em Linux ARM, Windows, macOS, etc. Apenas o executável `bcd` precisa ser específico da plataforma.
+
 ### Build a partir do Código
 
 ```bash
