@@ -15,33 +15,33 @@ import (
 
 // Estruturas de dados
 type Empresa struct {
-	CNPJBasico             string  `json:"cnpj_basico"`
-	RazaoSocial            string  `json:"razao_social"`
-	NaturezaJuridica       string  `json:"natureza_juridica"`
-	QualificacaoResp       string  `json:"qualificacao_responsavel"`
-	CapitalSocial          string  `json:"capital_social"`
-	PorteEmpresa           string  `json:"porte_empresa"`
-	EnteFederativo         string  `json:"ente_federativo"`
+	CNPJBasico       string `json:"cnpj_basico"`
+	RazaoSocial      string `json:"razao_social"`
+	NaturezaJuridica string `json:"natureza_juridica"`
+	QualificacaoResp string `json:"qualificacao_responsavel"`
+	CapitalSocial    string `json:"capital_social"`
+	PorteEmpresa     string `json:"porte_empresa"`
+	EnteFederativo   string `json:"ente_federativo"`
 }
 
 type Estabelecimento struct {
-	CNPJBasico             string `json:"cnpj_basico"`
-	CNPJOrdem              string `json:"cnpj_ordem"`
-	CNPJDV                 string `json:"cnpj_dv"`
-	CNPJCompleto           string `json:"cnpj_completo"` // Calculado
-	IdentificadorMF        string `json:"identificador_matriz_filial"`
-	NomeFantasia           string `json:"nome_fantasia"`
-	SituacaoCadastral      string `json:"situacao_cadastral"`
-	DataSituacaoCadastral  string `json:"data_situacao_cadastral"`
-	CNAEFiscalPrincipal    string `json:"cnae_fiscal_principal"`
-	Logradouro             string `json:"logradouro"`
-	Numero                 string `json:"numero"`
-	Bairro                 string `json:"bairro"`
-	CEP                    string `json:"cep"`
-	UF                     string `json:"uf"`
-	Municipio              string `json:"municipio"`
-	Telefone1              string `json:"telefone1"`
-	CorreioEletronico      string `json:"correio_eletronico"`
+	CNPJBasico            string `json:"cnpj_basico"`
+	CNPJOrdem             string `json:"cnpj_ordem"`
+	CNPJDV                string `json:"cnpj_dv"`
+	CNPJCompleto          string `json:"cnpj_completo"` // Calculado
+	IdentificadorMF       string `json:"identificador_matriz_filial"`
+	NomeFantasia          string `json:"nome_fantasia"`
+	SituacaoCadastral     string `json:"situacao_cadastral"`
+	DataSituacaoCadastral string `json:"data_situacao_cadastral"`
+	CNAEFiscalPrincipal   string `json:"cnae_fiscal_principal"`
+	Logradouro            string `json:"logradouro"`
+	Numero                string `json:"numero"`
+	Bairro                string `json:"bairro"`
+	CEP                   string `json:"cep"`
+	UF                    string `json:"uf"`
+	Municipio             string `json:"municipio"`
+	Telefone1             string `json:"telefone1"`
+	CorreioEletronico     string `json:"correio_eletronico"`
 }
 
 type EmpresaCompleta struct {
@@ -65,7 +65,7 @@ func NewDB(dbPath string) (*DB, error) {
 	}
 
 	// Connection pool otimizado para leituras concorrentes
-	db.SetMaxOpenConns(10)        // WAL permite múltiplos readers
+	db.SetMaxOpenConns(10) // WAL permite múltiplos readers
 	db.SetMaxIdleConns(5)
 	db.SetConnMaxLifetime(time.Hour)
 
