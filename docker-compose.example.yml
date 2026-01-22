@@ -1,0 +1,125 @@
+version: '3.8'
+
+services:
+  # API principal com SQLite embedado
+  cnpj-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.example
+    ports:
+      - "8080:8080"
+    environment:
+      - DB_PATH=/data/cnpj.sqlite
+      - PORT=8080
+      - GIN_MODE=release
+    volumes:
+      # Opção 1: Mount do SQLite externo (recomendado para dev)
+      - ./cnpj.sqlite:/data/cnpj.sqlite:ro
+
+      # Opção 2: tmpfs para cache de queries (opcional)
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 100m
+
+    # Limites de recursos
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 512M
+
+    # Healthcheck
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+    # Restart policy
+    restart: unless-stopped
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nginx como reverse proxy (opcional, para produção)
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - cnpj-api
+    restart: unless-stopped
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Prometheus para monitoramento (opcional)
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--storage.tsdb.retention.time=30d'
+    restart: unless-stopped
+
+  # Grafana para visualização (opcional)
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+volumes:
+  prometheus-data:
+  grafana-data:
+
+# ==============================================================================
+# INSTRUÇÕES DE USO:
+# ==============================================================================
+#
+# 1. DESENVOLVIMENTO (apenas API):
+#    docker-compose -f docker-compose.example.yml up cnpj-api
+#
+# 2. PRODUÇÃO (API + Nginx):
+#    docker-compose -f docker-compose.example.yml up -d cnpj-api nginx
+#
+# 3. COM MONITORAMENTO:
+#    docker-compose -f docker-compose.example.yml up -d
+#
+# 4. REBUILD:
+#    docker-compose -f docker-compose.example.yml up --build cnpj-api
+#
+# 5. LOGS:
+#    docker-compose -f docker-compose.example.yml logs -f cnpj-api
+#
+# 6. STATS:
+#    docker stats
+#
+# ==============================================================================

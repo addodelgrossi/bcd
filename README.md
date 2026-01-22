@@ -11,6 +11,7 @@ CLI em Go para **baixar → extrair → carregar** os dados abertos do CNPJ (RFB
 Baixe a versão mais recente para sua plataforma em [Releases](https://github.com/addodelgrossi/bcd/releases).
 
 Plataformas suportadas:
+
 - **Linux**: AMD64, ARM64
 - **macOS**: Intel (AMD64), Apple Silicon (ARM64)
 - **Windows**: AMD64, ARM64
@@ -24,19 +25,40 @@ go build -o bcd
 
 ## Uso
 
+### Descobrir a Última Versão Disponível
+
+```bash
+# Verificar qual é a última versão publicada pela Receita Federal
+./scripts/check_latest.sh
+```
+
+### Download e Processamento Manual
+
 ```bash
 # Verificar versão instalada
 ./bcd --version
 
-# 1) Download dos ZIPs do mês (ex.: 2025-10)
-./bcd download --ym 2025-10 --workdir /tmp/cnpj_rf
+# 1) Download dos ZIPs do mês (ex.: 2025-01)
+./bcd download --ym 2025-01 --workdir /tmp/cnpj_rf
 
 # 2) Extrair todos os ZIPs
-./bcd extract  --ym 2025-10 --workdir /tmp/cnpj_rf
+./bcd extract  --ym 2025-01 --workdir /tmp/cnpj_rf
 
 # 3) Carregar no SQLite (gera ./cnpj.sqlite por padrão)
-./bcd load     --ym 2025-10 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite
+./bcd load     --ym 2025-01 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite
 ```
+
+### Download Automatizado (Recomendado)
+
+```bash
+# Baixa automaticamente a última versão disponível
+./scripts/download_latest.sh
+
+# Com configuração customizada:
+WORKDIR=/data/cnpj OUTPUT=/data/cnpj.sqlite ./scripts/download_latest.sh
+```
+
+**Nota:** A Receita Federal geralmente publica os dados no início de cada mês com os dados do mês anterior.
 
 ## Tabelas criadas
 
@@ -45,17 +67,60 @@ go build -o bcd
 - `cnaes(codigo, descricao)`
 - `municipios(codigo, descricao)`
 
-> Dica de performance: o loader usa PRAGMAs para bulk load e transações; em máquinas lentas, rode em SSD e evite antivírus varrendo a pasta.
+## Performance
+
+O banco gerado é **otimizado para APIs de alta performance**:
+
+✅ **7 índices estratégicos** para queries comuns (CNPJ, município, CNAE, CEP, etc.)
+✅ **WAL mode** habilitado para leituras concorrentes sem bloqueio
+✅ **VACUUM + ANALYZE** executados automaticamente após carga
+✅ **64MB de cache** + 256MB memory-mapped I/O
+
+**Latência esperada:**
+- Busca por CNPJ: **< 1ms**
+- JOINs empresa + estabelecimento: **1-5ms**
+- Agregações geográficas: **50-200ms**
+
+📖 Veja [docs/PERFORMANCE.md](docs/PERFORMANCE.md) para guia completo de deployment, benchmarks e troubleshooting.
+
+> Dica: Para máximo desempenho, rode o `load` em SSD e mantenha o `.sqlite` em disco rápido (NVMe) ou dentro do container da API.
 
 ## Consultas úteis
 
-- Empresas grandes por cidade, CNAE, etc. (adapte das queries do BigQuery: os nomes de colunas são equivalentes).
+Veja [examples/queries.sql](examples/queries.sql) para 15+ exemplos de queries otimizadas:
+- Busca por CNPJ completo
+- Empresas ativas por município
+- Empresas por CNAE (setor)
+- Top cidades com mais empresas
+- Empresas por porte (ME, EPP, grande)
+- Busca por CEP
+- Contagem de filiais
+- E muito mais...
 
 ## Observações
 
 - O parser assume **CSV com `;`** e **Latin-1 (ISO-8859-1)**, conforme a RFB. Tudo é convertido para **UTF-8** antes de inserir.
 - A etapa `extract` grava todos os CSVs em `workdir/extracted`. O `load` varre esse diretório e carrega os arquivos que começam por `Empresas*`, `Estabelecimentos*`, `Cnaes*`, `Municipios*` (case-insensitive).
 - Driver **pure Go**: `modernc.org/sqlite` (dispensa CGO).
+
+## 📚 Documentação
+
+### Guias Técnicos
+Veja a pasta **[docs/](docs/)** para documentação completa:
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md) - Guia de performance e deployment
+- [docs/REVIEW_SUMMARY.md](docs/REVIEW_SUMMARY.md) - Resumo das otimizações implementadas
+- [docs/OPTIMIZATION_STRATEGY.md](docs/OPTIMIZATION_STRATEGY.md) - Estratégias de otimização
+- [docs/STRATEGY_COMPARISON.md](docs/STRATEGY_COMPARISON.md) - Comparação visual de abordagens
+- [docs/BUGFIX_URL.md](docs/BUGFIX_URL.md) - Histórico de correções
+
+### Exemplos de Código
+- [examples/api_example.go](examples/api_example.go) - API Golang de alta performance
+- [examples/queries.sql](examples/queries.sql) - 15+ queries SQL otimizadas
+- [examples/benchmark.sh](examples/benchmark.sh) - Script de load testing
+
+### Deployment
+- [Dockerfile.example](Dockerfile.example) - Dockerfile otimizado
+- [docker-compose.example.yml](docker-compose.example.yml) - Setup completo com monitoramento
 
 ## Desenvolvimento
 
@@ -72,6 +137,7 @@ git push origin v1.0.0
 ```
 
 Os binários são automaticamente:
+
 - Compilados em paralelo para Linux, macOS e Windows (AMD64 e ARM64)
 - Empacotados com checksums SHA256
 - Anexados ao GitHub Release

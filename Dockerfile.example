@@ -1,0 +1,111 @@
+# Exemplo de Dockerfile para API com SQLite embedado
+# Para usar este exemplo, você precisará ter seu código da API no mesmo repositório
+
+# Stage 1: Build da aplicação
+FROM golang:1.24-alpine AS builder
+
+# Instalar dependências de build
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /app
+
+# Copiar go.mod e go.sum primeiro (cache layer)
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copiar código fonte
+COPY . .
+
+# Build da aplicação (ajuste o caminho conforme necessário)
+# Flags de otimização:
+# -ldflags="-s -w" = remove símbolos de debug e DWARF (reduz 30% do binário)
+# CGO_ENABLED=0 = binário estático (compatível com Alpine)
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-s -w" \
+    -o api \
+    ./cmd/api
+
+# Stage 2: Imagem final otimizada
+FROM alpine:latest
+
+# Instalar apenas CA certificates (para HTTPS)
+RUN apk --no-cache add ca-certificates tzdata
+
+# Criar usuário não-privilegiado
+RUN addgroup -g 1000 apiuser && \
+    adduser -D -u 1000 -G apiuser apiuser
+
+WORKDIR /app
+
+# Copiar binário da API
+COPY --from=builder --chown=apiuser:apiuser /app/api .
+
+# Copiar o banco SQLite (AJUSTE O CAMINHO!)
+# Opção 1: Se você já tem o cnpj.sqlite no repo
+# COPY --chown=apiuser:apiuser cnpj.sqlite /data/cnpj.sqlite
+
+# Opção 2: Se você vai copiar de um build separado
+# COPY --chown=apiuser:apiuser /path/to/cnpj.sqlite /data/cnpj.sqlite
+
+# Criar diretório de dados
+RUN mkdir -p /data && chown -R apiuser:apiuser /data
+
+# Mudar para usuário não-root
+USER apiuser
+
+# Variáveis de ambiente
+ENV DB_PATH=/data/cnpj.sqlite
+ENV PORT=8080
+ENV GIN_MODE=release
+
+# Healthcheck (ajuste conforme sua API)
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Expor porta
+EXPOSE 8080
+
+# Comando de inicialização
+CMD ["./api"]
+
+# ==============================================================================
+# NOTAS DE USO:
+# ==============================================================================
+#
+# 1. BUILD DA IMAGEM (sem o SQLite embedado):
+#    docker build -t cnpj-api:latest -f Dockerfile.example .
+#
+# 2. BUILD COM SQLITE EMBEDADO:
+#    a) Primeiro, gere o cnpj.sqlite:
+#       ./bcd download --ym 2025-01 --workdir /tmp/cnpj
+#       ./bcd extract --ym 2025-01 --workdir /tmp/cnpj
+#       ./bcd load --ym 2025-01 --workdir /tmp/cnpj --out ./cnpj.sqlite
+#
+#    b) Depois, build a imagem:
+#       docker build -t cnpj-api:latest -f Dockerfile.example .
+#
+# 3. RUN COM VOLUME EXTERNO (recomendado para desenvolvimento):
+#    docker run -d \
+#      -p 8080:8080 \
+#      -v $(pwd)/cnpj.sqlite:/data/cnpj.sqlite:ro \
+#      --name cnpj-api \
+#      cnpj-api:latest
+#
+# 4. RUN COM SQLITE EMBEDADO:
+#    docker run -d \
+#      -p 8080:8080 \
+#      --name cnpj-api \
+#      cnpj-api:latest
+#
+# 5. OTIMIZAÇÕES DE PRODUÇÃO:
+#    docker run -d \
+#      -p 8080:8080 \
+#      --memory="2g" \
+#      --cpus="2" \
+#      --read-only \
+#      --tmpfs /tmp:rw,noexec,nosuid,size=100m \
+#      -v $(pwd)/cnpj.sqlite:/data/cnpj.sqlite:ro \
+#      --name cnpj-api \
+#      cnpj-api:latest
+#
+# ==============================================================================

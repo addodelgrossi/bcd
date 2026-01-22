@@ -11,7 +11,6 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
@@ -41,6 +40,9 @@ var loadCmd = &cobra.Command{
 		if err := createIndexes(ctx, db); err != nil {
 			return err
 		}
+		if err := showStats(ctx, db); err != nil {
+			return err
+		}
 		logger.Info("load done", slog.String("db", flagOutDB))
 		return nil
 	},
@@ -49,8 +51,12 @@ var loadCmd = &cobra.Command{
 func init() { RootCmd.AddCommand(loadCmd) }
 
 func openSQLite(path string) (*sql.DB, error) {
-	// Best-effort pragmas for bulk load; we'll set more after open
-	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)&_pragma=temp_store(MEMORY)", path)
+	// PRAGMAs otimizados para bulk load (escrita rápida)
+	// journal_mode=MEMORY: evita I/O de journal durante carga
+	// synchronous=OFF: maximiza velocidade (seguro apenas durante import)
+	// temp_store=MEMORY: tabelas temporárias em RAM
+	// cache_size=-64000: 64MB de cache (negativo = KB)
+	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(MEMORY)&_pragma=synchronous(OFF)&_pragma=temp_store(MEMORY)&_pragma=cache_size(-64000)", path)
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
 		return nil, err
@@ -77,9 +83,9 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 			ente_federativo TEXT
 		);`,
 		`CREATE TABLE IF NOT EXISTS estabelecimentos (
-			cnpj_basico TEXT,
-			cnpj_ordem TEXT,
-			cnpj_dv TEXT,
+			cnpj_basico TEXT NOT NULL,
+			cnpj_ordem TEXT NOT NULL,
+			cnpj_dv TEXT NOT NULL,
 			identificador_matriz_filial TEXT,
 			nome_fantasia TEXT,
 			situacao_cadastral TEXT,
@@ -103,7 +109,8 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 			ddd_fax TEXT, fax TEXT,
 			correio_eletronico TEXT,
 			situacao_especial TEXT,
-			data_situacao_especial TEXT
+			data_situacao_especial TEXT,
+			PRIMARY KEY (cnpj_basico, cnpj_ordem, cnpj_dv)
 		);`,
 		`CREATE TABLE IF NOT EXISTS cnaes (
 			codigo TEXT PRIMARY KEY,
@@ -123,16 +130,55 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 }
 
 func createIndexes(ctx context.Context, db *sql.DB) error {
+	logger.Info("creating indexes - this may take several minutes...")
 	stmts := []string{
+		// Índices para estabelecimentos (consultas mais comuns)
 		`CREATE INDEX IF NOT EXISTS idx_estab_cnpj ON estabelecimentos(cnpj_basico);`,
-		`CREATE INDEX IF NOT EXISTS idx_estab_mun ON estabelecimentos(municipio, uf);`,
+		`CREATE INDEX IF NOT EXISTS idx_estab_mun_uf ON estabelecimentos(municipio, uf);`,
+		`CREATE INDEX IF NOT EXISTS idx_estab_uf ON estabelecimentos(uf);`,
 		`CREATE INDEX IF NOT EXISTS idx_estab_cnae ON estabelecimentos(cnae_fiscal_principal);`,
+		`CREATE INDEX IF NOT EXISTS idx_estab_situacao ON estabelecimentos(situacao_cadastral);`,
+		`CREATE INDEX IF NOT EXISTS idx_estab_cep ON estabelecimentos(cep);`,
+
+		// Índice para matriz/filial (útil para agregações)
+		`CREATE INDEX IF NOT EXISTS idx_estab_matriz_filial ON estabelecimentos(identificador_matriz_filial);`,
 	}
 	for _, q := range stmts {
+		logger.Info("creating index", slog.String("stmt", q))
 		if err := exec(ctx, db, q); err != nil {
 			return err
 		}
 	}
+
+	// ANALYZE atualiza estatísticas do query planner
+	logger.Info("analyzing tables for query optimization...")
+	if err := exec(ctx, db, `ANALYZE;`); err != nil {
+		return err
+	}
+
+	// VACUUM otimiza o arquivo físico (remove espaço livre, desfragmenta)
+	logger.Info("vacuuming database - this may take a while...")
+	if err := exec(ctx, db, `VACUUM;`); err != nil {
+		return err
+	}
+
+	// Otimiza PRAGMAs para LEITURA (depois do load)
+	// IMPORTANTE: Alguns PRAGMAs precisam fechar/reabrir a conexão
+	logger.Info("optimizing database for read performance...")
+	optimizeForReads := []string{
+		`PRAGMA journal_mode=WAL;`,        // WAL mode para reads concorrentes
+		`PRAGMA synchronous=NORMAL;`,      // Balanço segurança/performance
+		`PRAGMA temp_store=MEMORY;`,       // Mantém temp em RAM
+		`PRAGMA mmap_size=268435456;`,     // 256MB memory-mapped I/O
+	}
+	for _, q := range optimizeForReads {
+		if err := exec(ctx, db, q); err != nil {
+			return err
+		}
+	}
+
+	logger.Info("indexes and optimizations completed")
+	logger.Info("database is ready for high-performance reads")
 	return nil
 }
 
@@ -141,32 +187,29 @@ func loadAll(ctx context.Context, db *sql.DB, dir string) error {
 	if err != nil {
 		return err
 	}
-	// We accept both upper/lower .csv
-	csvRe := regexp.MustCompile(`(?i)\.csv$`)
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		name := e.Name()
-		if !csvRe.MatchString(name) {
-			continue
-		}
 		path := filepath.Join(dir, name)
-		lower := strings.ToLower(name)
+		upper := strings.ToUpper(name)
+
+		// Detectar arquivos pelos padrões da Receita Federal
 		switch {
-		case strings.HasPrefix(lower, "empresas"):
+		case strings.Contains(upper, "EMPRE"):
 			if err := loadEmpresas(ctx, db, path); err != nil {
 				return err
 			}
-		case strings.HasPrefix(lower, "estabelecimentos"):
+		case strings.Contains(upper, "ESTABELE"):
 			if err := loadEstabelecimentos(ctx, db, path); err != nil {
 				return err
 			}
-		case strings.HasPrefix(lower, "cnaes"):
+		case strings.Contains(upper, "CNAE"):
 			if err := loadCnaes(ctx, db, path); err != nil {
 				return err
 			}
-		case strings.HasPrefix(lower, "municipios"):
+		case strings.Contains(upper, "MUNIC"):
 			if err := loadMunicipios(ctx, db, path); err != nil {
 				return err
 			}
@@ -349,4 +392,30 @@ func joinRest(ss []string) string {
 		ss[i] = strings.TrimSpace(ss[i])
 	}
 	return strings.Join(ss, ";")
+}
+
+func showStats(ctx context.Context, db *sql.DB) error {
+	tables := []string{"empresas", "estabelecimentos", "cnaes", "municipios"}
+	logger.Info("=== Database Statistics ===")
+
+	for _, table := range tables {
+		var count int
+		if err := db.QueryRowContext(ctx, fmt.Sprintf("SELECT COUNT(*) FROM %s", table)).Scan(&count); err != nil {
+			return err
+		}
+		logger.Info("table stats", slog.String("table", table), slog.Int("rows", count))
+	}
+
+	// Tamanho do arquivo
+	var pageCount, pageSize int
+	if err := db.QueryRowContext(ctx, "PRAGMA page_count").Scan(&pageCount); err != nil {
+		return err
+	}
+	if err := db.QueryRowContext(ctx, "PRAGMA page_size").Scan(&pageSize); err != nil {
+		return err
+	}
+	sizeGB := float64(pageCount*pageSize) / (1024 * 1024 * 1024)
+	logger.Info("database size", slog.Float64("size_gb", sizeGB))
+
+	return nil
 }
