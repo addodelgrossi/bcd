@@ -64,10 +64,18 @@ WORKDIR=/data/cnpj OUTPUT=/data/cnpj.sqlite ./scripts/download_latest.sh
 
 ## Tabelas criadas
 
+### Tabelas Principais
 - `empresas(cnpj_basico, razao_social, natureza_juridica, qualificacao_responsavel, capital_social, porte_empresa, ente_federativo)`
 - `estabelecimentos(cnpj_basico, cnpj_ordem, cnpj_dv, identificador_matriz_filial, nome_fantasia, situacao_cadastral, data_situacao_cadastral, motivo_situacao_cadastral, nome_cidade_exterior, pais, data_inicio_atividade, cnae_fiscal_principal, cnae_fiscal_secundaria, tipo_logradouro, logradouro, numero, complemento, bairro, cep, uf, municipio, ddd1, telefone1, ddd2, telefone2, ddd_fax, fax, correio_eletronico, situacao_especial, data_situacao_especial)`
-- `cnaes(codigo, descricao)`
-- `municipios(codigo, descricao)`
+- `simples(cnpj_basico, opcao_simples, data_opcao_simples, data_exclusao_simples, opcao_mei, data_opcao_mei, data_exclusao_mei)`
+
+### Tabelas de Referência (Lookup)
+- `cnaes(codigo, descricao)` - Classificação Nacional de Atividades Econômicas
+- `municipios(codigo, descricao)` - Códigos de municípios brasileiros
+- `paises(codigo, descricao)` - Códigos de países
+- `qualificacoes(codigo, descricao)` - Qualificação do responsável pela empresa
+- `naturezas_juridicas(codigo, descricao)` - Natureza jurídica da empresa
+- `motivos(codigo, descricao)` - Motivos de situação cadastral
 
 ## Performance
 

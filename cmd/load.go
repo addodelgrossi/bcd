@@ -120,6 +120,31 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 			codigo TEXT PRIMARY KEY,
 			descricao TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS paises (
+			codigo TEXT PRIMARY KEY,
+			descricao TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS qualificacoes (
+			codigo TEXT PRIMARY KEY,
+			descricao TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS naturezas_juridicas (
+			codigo TEXT PRIMARY KEY,
+			descricao TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS motivos (
+			codigo TEXT PRIMARY KEY,
+			descricao TEXT
+		);`,
+		`CREATE TABLE IF NOT EXISTS simples (
+			cnpj_basico TEXT PRIMARY KEY,
+			opcao_simples TEXT,
+			data_opcao_simples TEXT,
+			data_exclusao_simples TEXT,
+			opcao_mei TEXT,
+			data_opcao_mei TEXT,
+			data_exclusao_mei TEXT
+		);`,
 	}
 	for _, q := range stmts {
 		if err := exec(ctx, db, q); err != nil {
@@ -166,10 +191,10 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 	// IMPORTANTE: Alguns PRAGMAs precisam fechar/reabrir a conexão
 	logger.Info("optimizing database for read performance...")
 	optimizeForReads := []string{
-		`PRAGMA journal_mode=WAL;`,        // WAL mode para reads concorrentes
-		`PRAGMA synchronous=NORMAL;`,      // Balanço segurança/performance
-		`PRAGMA temp_store=MEMORY;`,       // Mantém temp em RAM
-		`PRAGMA mmap_size=268435456;`,     // 256MB memory-mapped I/O
+		`PRAGMA journal_mode=WAL;`,    // WAL mode para reads concorrentes
+		`PRAGMA synchronous=NORMAL;`,  // Balanço segurança/performance
+		`PRAGMA temp_store=MEMORY;`,   // Mantém temp em RAM
+		`PRAGMA mmap_size=268435456;`, // 256MB memory-mapped I/O
 	}
 	for _, q := range optimizeForReads {
 		if err := exec(ctx, db, q); err != nil {
@@ -211,6 +236,26 @@ func loadAll(ctx context.Context, db *sql.DB, dir string) error {
 			}
 		case strings.Contains(upper, "MUNIC"):
 			if err := loadMunicipios(ctx, db, path); err != nil {
+				return err
+			}
+		case strings.Contains(upper, "PAIS"):
+			if err := loadPaises(ctx, db, path); err != nil {
+				return err
+			}
+		case strings.Contains(upper, "QUALS"):
+			if err := loadQualificacoes(ctx, db, path); err != nil {
+				return err
+			}
+		case strings.Contains(upper, "NATJU"):
+			if err := loadNaturezasJuridicas(ctx, db, path); err != nil {
+				return err
+			}
+		case strings.Contains(upper, "MOTI"):
+			if err := loadMotivos(ctx, db, path); err != nil {
+				return err
+			}
+		case strings.Contains(upper, "SIMPLES"):
+			if err := loadSimples(ctx, db, path); err != nil {
 				return err
 			}
 		default:
@@ -290,7 +335,15 @@ func loadEmpresas(ctx context.Context, db *sql.DB, path string) error {
 		return err
 	}
 	defer c.Close()
-	cols := []string{"cnpj_basico", "razao_social", "natureza_juridica", "qualificacao_responsavel", "capital_social", "porte_empresa", "ente_federativo"}
+	cols := []string{
+		"cnpj_basico",
+		"razao_social",
+		"natureza_juridica",
+		"qualificacao_responsavel",
+		"capital_social",
+		"porte_empresa",
+		"ente_federativo",
+	}
 	return txInsert(ctx, db, "empresas", cols, func(emit func([]any) error) error {
 		for {
 			rec, err := r.Read()
@@ -323,7 +376,36 @@ func loadEstabelecimentos(ctx context.Context, db *sql.DB, path string) error {
 	}
 	defer c.Close()
 	cols := []string{
-		"cnpj_basico", "cnpj_ordem", "cnpj_dv", "identificador_matriz_filial", "nome_fantasia", "situacao_cadastral", "data_situacao_cadastral", "motivo_situacao_cadastral", "nome_cidade_exterior", "pais", "data_inicio_atividade", "cnae_fiscal_principal", "cnae_fiscal_secundaria", "tipo_logradouro", "logradouro", "numero", "complemento", "bairro", "cep", "uf", "municipio", "ddd1", "telefone1", "ddd2", "telefone2", "ddd_fax", "fax", "correio_eletronico", "situacao_especial", "data_situacao_especial",
+		"cnpj_basico",
+		"cnpj_ordem",
+		"cnpj_dv",
+		"identificador_matriz_filial",
+		"nome_fantasia",
+		"situacao_cadastral",
+		"data_situacao_cadastral",
+		"motivo_situacao_cadastral",
+		"nome_cidade_exterior",
+		"pais",
+		"data_inicio_atividade",
+		"cnae_fiscal_principal",
+		"cnae_fiscal_secundaria",
+		"tipo_logradouro",
+		"logradouro",
+		"numero",
+		"complemento",
+		"bairro",
+		"cep",
+		"uf",
+		"municipio",
+		"ddd1",
+		"telefone1",
+		"ddd2",
+		"telefone2",
+		"ddd_fax",
+		"fax",
+		"correio_eletronico",
+		"situacao_especial",
+		"data_situacao_especial",
 	}
 	return txInsert(ctx, db, "estabelecimentos", cols, func(emit func([]any) error) error {
 		for {
@@ -395,6 +477,87 @@ func loadMunicipios(ctx context.Context, db *sql.DB, path string) error {
 	})
 }
 
+func loadPaises(ctx context.Context, db *sql.DB, path string) error {
+	return loadReferenceTable(ctx, db, path, "paises")
+}
+
+func loadQualificacoes(ctx context.Context, db *sql.DB, path string) error {
+	return loadReferenceTable(ctx, db, path, "qualificacoes")
+}
+
+func loadNaturezasJuridicas(ctx context.Context, db *sql.DB, path string) error {
+	return loadReferenceTable(ctx, db, path, "naturezas_juridicas")
+}
+
+func loadMotivos(ctx context.Context, db *sql.DB, path string) error {
+	return loadReferenceTable(ctx, db, path, "motivos")
+}
+
+// loadReferenceTable is a generic loader for two-column reference tables (codigo, descricao)
+func loadReferenceTable(ctx context.Context, db *sql.DB, path, tableName string) error {
+	r, c, err := newLatin1CSV(path)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	cols := []string{"codigo", "descricao"}
+	return txInsert(ctx, db, tableName, cols, func(emit func([]any) error) error {
+		for {
+			rec, err := r.Read()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			vals := []any{strings.TrimSpace(rec[0]), strings.TrimSpace(joinRest(rec[1:]))}
+			if err := emit(vals); err != nil {
+				return err
+			}
+		}
+	})
+}
+
+func loadSimples(ctx context.Context, db *sql.DB, path string) error {
+	r, c, err := newLatin1CSV(path)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	cols := []string{
+		"cnpj_basico",
+		"opcao_simples",
+		"data_opcao_simples",
+		"data_exclusao_simples",
+		"opcao_mei",
+		"data_opcao_mei",
+		"data_exclusao_mei",
+	}
+	return txInsert(ctx, db, "simples", cols, func(emit func([]any) error) error {
+		for {
+			rec, err := r.Read()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			// RFB layout Simples: 7 colunas (cnpj_basico + 6 campos do Simples Nacional)
+			vals := make([]any, len(cols))
+			for i := range cols {
+				if i < len(rec) {
+					vals[i] = strings.TrimSpace(rec[i])
+				} else {
+					vals[i] = nil
+				}
+			}
+			if err := emit(vals); err != nil {
+				return err
+			}
+		}
+	})
+}
+
 func joinRest(ss []string) string {
 	for i := range ss {
 		ss[i] = strings.TrimSpace(ss[i])
@@ -403,7 +566,17 @@ func joinRest(ss []string) string {
 }
 
 func showStats(ctx context.Context, db *sql.DB) error {
-	tables := []string{"empresas", "estabelecimentos", "cnaes", "municipios"}
+	tables := []string{
+		"empresas",
+		"estabelecimentos",
+		"cnaes",
+		"municipios",
+		"paises",
+		"qualificacoes",
+		"naturezas_juridicas",
+		"motivos",
+		"simples",
+	}
 	logger.Info("=== Database Statistics ===")
 
 	for _, table := range tables {

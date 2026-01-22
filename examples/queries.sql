@@ -359,3 +359,122 @@ ORDER BY total_estabelecimentos DESC;
 -- 7. Para APIs, sempre use prepared statements + cache
 --
 -- ============================================================================
+
+-- ============================================================================
+-- QUERIES COM TABELAS DE REFERÊNCIA (NOVOS)
+-- ============================================================================
+-- As queries abaixo demonstram o uso das tabelas de referência para
+-- decodificar códigos em descrições legíveis
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 16. BUSCA COMPLETA COM DESCRIÇÕES DE REFERÊNCIA
+-- ----------------------------------------------------------------------------
+-- Uso: Buscar empresa com todas as descrições decodificadas
+-- Performance: < 5ms (múltiplos JOINs com PKs)
+-- ----------------------------------------------------------------------------
+SELECT
+    e.cnpj_basico,
+    e.razao_social,
+    nj.descricao as natureza_juridica,
+    q.descricao as qualificacao_responsavel,
+    e.capital_social,
+    e.porte_empresa,
+    est.cnpj_basico || est.cnpj_ordem || est.cnpj_dv as cnpj_completo,
+    est.nome_fantasia,
+    est.situacao_cadastral,
+    m.descricao as motivo_situacao,
+    p.descricao as pais,
+    mun.descricao as municipio,
+    est.uf,
+    c.descricao as cnae_principal
+FROM empresas e
+JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
+LEFT JOIN naturezas_juridicas nj ON e.natureza_juridica = nj.codigo
+LEFT JOIN qualificacoes q ON e.qualificacao_responsavel = q.codigo
+LEFT JOIN motivos m ON est.motivo_situacao_cadastral = m.codigo
+LEFT JOIN paises p ON est.pais = p.codigo
+LEFT JOIN municipios mun ON est.municipio = mun.codigo
+LEFT JOIN cnaes c ON est.cnae_fiscal_principal = c.codigo
+WHERE e.cnpj_basico = '12345678'
+LIMIT 10;
+
+-- ----------------------------------------------------------------------------
+-- 17. EMPRESAS NO SIMPLES NACIONAL
+-- ----------------------------------------------------------------------------
+-- Uso: Listar empresas optantes pelo Simples Nacional
+-- Performance: 10-50ms (JOIN com simples)
+-- ----------------------------------------------------------------------------
+SELECT
+    e.cnpj_basico,
+    e.razao_social,
+    s.opcao_simples,
+    s.data_opcao_simples,
+    s.opcao_mei,
+    s.data_opcao_mei,
+    est.uf,
+    mun.descricao as municipio
+FROM empresas e
+JOIN simples s ON e.cnpj_basico = s.cnpj_basico
+JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
+LEFT JOIN municipios mun ON est.municipio = mun.codigo
+WHERE s.opcao_simples = 'S'
+    AND est.identificador_matriz_filial = '1'  -- Apenas matriz
+    AND est.situacao_cadastral = '2'  -- Ativa
+LIMIT 100;
+
+-- ----------------------------------------------------------------------------
+-- 18. DISTRIBUIÇÃO POR NATUREZA JURÍDICA
+-- ----------------------------------------------------------------------------
+-- Uso: Estatísticas de tipos de empresa
+-- Performance: 100-500ms (agregação)
+-- ----------------------------------------------------------------------------
+SELECT
+    nj.descricao as natureza_juridica,
+    COUNT(*) as total_empresas,
+    ROUND(CAST(COUNT(*) AS FLOAT) / (SELECT COUNT(*) FROM empresas) * 100, 2) as percentual
+FROM empresas e
+LEFT JOIN naturezas_juridicas nj ON e.natureza_juridica = nj.codigo
+GROUP BY e.natureza_juridica, nj.descricao
+ORDER BY total_empresas DESC
+LIMIT 20;
+
+-- ----------------------------------------------------------------------------
+-- 19. TOP PAÍSES DE ORIGEM DAS EMPRESAS ESTRANGEIRAS
+-- ----------------------------------------------------------------------------
+-- Uso: Empresas com sede no exterior
+-- Performance: 50-200ms
+-- ----------------------------------------------------------------------------
+SELECT
+    p.descricao as pais,
+    COUNT(DISTINCT est.cnpj_basico) as total_empresas,
+    COUNT(*) as total_estabelecimentos
+FROM estabelecimentos est
+JOIN paises p ON est.pais = p.codigo
+WHERE est.pais != '105'  -- 105 = Brasil
+    AND est.pais IS NOT NULL
+GROUP BY est.pais, p.descricao
+ORDER BY total_empresas DESC
+LIMIT 20;
+
+-- ----------------------------------------------------------------------------
+-- 20. MOTIVOS DE BAIXA/INATIVAÇÃO MAIS COMUNS
+-- ----------------------------------------------------------------------------
+-- Uso: Análise de razões para empresas inativas
+-- Performance: 100-500ms
+-- ----------------------------------------------------------------------------
+SELECT
+    m.descricao as motivo,
+    COUNT(*) as total_estabelecimentos,
+    ROUND(CAST(COUNT(*) AS FLOAT) / 
+          (SELECT COUNT(*) FROM estabelecimentos WHERE situacao_cadastral != '2') * 100, 2) as percentual
+FROM estabelecimentos est
+JOIN motivos m ON est.motivo_situacao_cadastral = m.codigo
+WHERE est.situacao_cadastral != '2'  -- Não ativas
+    AND est.motivo_situacao_cadastral IS NOT NULL
+    AND est.motivo_situacao_cadastral != '00'  -- Desconsiderar "sem motivo"
+GROUP BY est.motivo_situacao_cadastral, m.descricao
+ORDER BY total_estabelecimentos DESC
+LIMIT 20;
+
+-- ============================================================================
