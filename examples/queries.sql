@@ -478,3 +478,130 @@ ORDER BY total_estabelecimentos DESC
 LIMIT 20;
 
 -- ============================================================================
+-- QUERIES COM SÓCIOS
+-- ============================================================================
+-- As queries abaixo demonstram consultas à tabela de sócios/administradores
+-- ============================================================================
+
+-- ----------------------------------------------------------------------------
+-- 21. BUSCAR SÓCIOS DE UMA EMPRESA
+-- ----------------------------------------------------------------------------
+-- Uso: Listar todos os sócios de uma empresa específica
+-- Performance: < 5ms (usa idx_socios_cnpj)
+-- ----------------------------------------------------------------------------
+SELECT
+    s.cnpj_basico,
+    e.razao_social,
+    s.identificador_socio,  -- 1=PJ, 2=PF, 3=Estrangeiro
+    s.nome_socio,
+    s.cnpj_cpf_socio,
+    q.descricao as qualificacao,
+    s.data_entrada_sociedade,
+    p.descricao as pais,
+    s.nome_representante,
+    qr.descricao as qualificacao_representante
+FROM socios s
+JOIN empresas e ON s.cnpj_basico = e.cnpj_basico
+LEFT JOIN qualificacoes q ON s.qualificacao_socio = q.codigo
+LEFT JOIN paises p ON s.pais = p.codigo
+LEFT JOIN qualificacoes qr ON s.qualificacao_representante_legal = qr.codigo
+WHERE s.cnpj_basico = '12345678'
+ORDER BY s.nome_socio;
+
+-- ----------------------------------------------------------------------------
+-- 22. ENCONTRAR EMPRESAS POR SÓCIO (Pessoa Física)
+-- ----------------------------------------------------------------------------
+-- Uso: Descobrir todas as empresas onde uma pessoa é sócia
+-- Performance: 20-100ms (scan na tabela socios)
+-- ----------------------------------------------------------------------------
+SELECT
+    e.cnpj_basico,
+    e.razao_social,
+    s.qualificacao_socio,
+    q.descricao as qualificacao,
+    s.data_entrada_sociedade,
+    est.uf,
+    mun.descricao as municipio
+FROM socios s
+JOIN empresas e ON s.cnpj_basico = e.cnpj_basico
+JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
+LEFT JOIN qualificacoes q ON s.qualificacao_socio = q.codigo
+LEFT JOIN municipios mun ON est.municipio = mun.codigo
+WHERE s.cnpj_cpf_socio = '12345678901'  -- CPF do sócio
+    AND s.identificador_socio = '2'  -- Pessoa Física
+    AND est.identificador_matriz_filial = '1'  -- Apenas matriz
+ORDER BY e.razao_social;
+
+-- ----------------------------------------------------------------------------
+-- 23. SÓCIOS PESSOA JURÍDICA (empresas que são sócias de outras)
+-- ----------------------------------------------------------------------------
+-- Uso: Encontrar holdings ou grupos empresariais
+-- Performance: 50-200ms
+-- ----------------------------------------------------------------------------
+SELECT
+    s.cnpj_basico,
+    e.razao_social as empresa,
+    s.nome_socio as socio_pj,
+    s.cnpj_cpf_socio as cnpj_socio,
+    q.descricao as qualificacao
+FROM socios s
+JOIN empresas e ON s.cnpj_basico = e.cnpj_basico
+LEFT JOIN qualificacoes q ON s.qualificacao_socio = q.codigo
+WHERE s.identificador_socio = '1'  -- Pessoa Jurídica
+    AND s.cnpj_cpf_socio IS NOT NULL
+ORDER BY s.nome_socio
+LIMIT 100;
+
+-- ----------------------------------------------------------------------------
+-- 24. SÓCIOS ESTRANGEIROS
+-- ----------------------------------------------------------------------------
+-- Uso: Identificar participação estrangeira em empresas brasileiras
+-- Performance: 50-200ms
+-- ----------------------------------------------------------------------------
+SELECT
+    s.cnpj_basico,
+    e.razao_social,
+    s.nome_socio,
+    p.descricao as pais_origem,
+    s.nome_representante,
+    est.uf,
+    mun.descricao as municipio
+FROM socios s
+JOIN empresas e ON s.cnpj_basico = e.cnpj_basico
+JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
+LEFT JOIN paises p ON s.pais = p.codigo
+LEFT JOIN municipios mun ON est.municipio = mun.codigo
+WHERE s.identificador_socio = '3'  -- Estrangeiro
+    AND s.pais != '105'  -- Diferente de Brasil
+    AND est.identificador_matriz_filial = '1'
+ORDER BY s.pais, s.nome_socio
+LIMIT 100;
+
+-- ----------------------------------------------------------------------------
+-- 25. DISTRIBUIÇÃO POR FAIXA ETÁRIA DOS SÓCIOS
+-- ----------------------------------------------------------------------------
+-- Uso: Análise demográfica dos sócios
+-- Performance: 100-500ms (agregação)
+-- ----------------------------------------------------------------------------
+SELECT
+    s.faixa_etaria,
+    CASE s.faixa_etaria
+        WHEN '1' THEN '0-12 anos'
+        WHEN '2' THEN '13-20 anos'
+        WHEN '3' THEN '21-30 anos'
+        WHEN '4' THEN '31-40 anos'
+        WHEN '5' THEN '41-50 anos'
+        WHEN '6' THEN '51-60 anos'
+        WHEN '7' THEN '61-70 anos'
+        WHEN '8' THEN '71-80 anos'
+        WHEN '9' THEN 'Mais de 80 anos'
+        ELSE 'Não informado'
+    END as descricao_faixa,
+    COUNT(*) as total_socios
+FROM socios s
+WHERE s.identificador_socio = '2'  -- Apenas pessoas físicas
+    AND s.faixa_etaria IS NOT NULL
+GROUP BY s.faixa_etaria
+ORDER BY s.faixa_etaria;
+
+-- ============================================================================
