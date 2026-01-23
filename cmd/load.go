@@ -145,6 +145,19 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 			data_opcao_mei TEXT,
 			data_exclusao_mei TEXT
 		);`,
+		`CREATE TABLE IF NOT EXISTS socios (
+			cnpj_basico TEXT NOT NULL,
+			identificador_socio TEXT,
+			nome_socio TEXT,
+			cnpj_cpf_socio TEXT,
+			qualificacao_socio TEXT,
+			data_entrada_sociedade TEXT,
+			pais TEXT,
+			representante_legal TEXT,
+			nome_representante TEXT,
+			qualificacao_representante_legal TEXT,
+			faixa_etaria TEXT
+		);`,
 	}
 	for _, q := range stmts {
 		if err := exec(ctx, db, q); err != nil {
@@ -167,6 +180,9 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 
 		// Índice para matriz/filial (útil para agregações)
 		`CREATE INDEX IF NOT EXISTS idx_estab_matriz_filial ON estabelecimentos(identificador_matriz_filial);`,
+
+		// Índices para socios (consultas por empresa)
+		`CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);`,
 	}
 	for _, q := range stmts {
 		logger.Info("creating index", slog.String("stmt", q))
@@ -256,6 +272,10 @@ func loadAll(ctx context.Context, db *sql.DB, dir string) error {
 			}
 		case strings.Contains(upper, "SIMPLES"):
 			if err := loadSimples(ctx, db, path); err != nil {
+				return err
+			}
+		case strings.Contains(upper, "SOCIO"):
+			if err := loadSocios(ctx, db, path); err != nil {
 				return err
 			}
 		default:
@@ -558,6 +578,50 @@ func loadSimples(ctx context.Context, db *sql.DB, path string) error {
 	})
 }
 
+func loadSocios(ctx context.Context, db *sql.DB, path string) error {
+	r, c, err := newLatin1CSV(path)
+	if err != nil {
+		return err
+	}
+	defer c.Close()
+	cols := []string{
+		"cnpj_basico",
+		"identificador_socio",
+		"nome_socio",
+		"cnpj_cpf_socio",
+		"qualificacao_socio",
+		"data_entrada_sociedade",
+		"pais",
+		"representante_legal",
+		"nome_representante",
+		"qualificacao_representante_legal",
+		"faixa_etaria",
+	}
+	return txInsert(ctx, db, "socios", cols, func(emit func([]any) error) error {
+		for {
+			rec, err := r.Read()
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			// RFB layout Socios: 11 colunas (conforme metadados da RFB)
+			vals := make([]any, len(cols))
+			for i := range cols {
+				if i < len(rec) {
+					vals[i] = strings.TrimSpace(rec[i])
+				} else {
+					vals[i] = nil
+				}
+			}
+			if err := emit(vals); err != nil {
+				return err
+			}
+		}
+	})
+}
+
 func joinRest(ss []string) string {
 	for i := range ss {
 		ss[i] = strings.TrimSpace(ss[i])
@@ -569,6 +633,7 @@ func showStats(ctx context.Context, db *sql.DB) error {
 	tables := []string{
 		"empresas",
 		"estabelecimentos",
+		"socios",
 		"cnaes",
 		"municipios",
 		"paises",
