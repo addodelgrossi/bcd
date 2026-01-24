@@ -86,15 +86,15 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 			cnpj_basico TEXT NOT NULL,
 			cnpj_ordem TEXT NOT NULL,
 			cnpj_dv TEXT NOT NULL,
-			identificador_matriz_filial TEXT,
+			identificador_matriz_filial INTEGER,
 			nome_fantasia TEXT,
-			situacao_cadastral TEXT,
+			situacao_cadastral INTEGER,
 			data_situacao_cadastral TEXT,
-			motivo_situacao_cadastral TEXT,
+			motivo_situacao_cadastral INTEGER,
 			nome_cidade_exterior TEXT,
-			pais TEXT,
+			pais INTEGER,
 			data_inicio_atividade TEXT,
-			cnae_fiscal_principal TEXT,
+			cnae_fiscal_principal INTEGER,
 			cnae_fiscal_secundaria TEXT,
 			tipo_logradouro TEXT,
 			logradouro TEXT,
@@ -103,7 +103,7 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 			bairro TEXT,
 			cep TEXT,
 			uf TEXT,
-			municipio TEXT,
+			municipio INTEGER,
 			ddd1 TEXT, telefone1 TEXT,
 			ddd2 TEXT, telefone2 TEXT,
 			ddd_fax TEXT, fax TEXT,
@@ -137,7 +137,7 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 			descricao TEXT
 		);`,
 		`CREATE TABLE IF NOT EXISTS simples (
-			cnpj_basico TEXT PRIMARY KEY,
+			cnpj_basico TEXT PRIMARY KEY NOT NULL,
 			opcao_simples TEXT,
 			data_opcao_simples TEXT,
 			data_exclusao_simples TEXT,
@@ -147,16 +147,16 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 		);`,
 		`CREATE TABLE IF NOT EXISTS socios (
 			cnpj_basico TEXT NOT NULL,
-			identificador_socio TEXT,
+			identificador_socio INTEGER,
 			nome_socio TEXT,
 			cnpj_cpf_socio TEXT,
-			qualificacao_socio TEXT,
+			qualificacao_socio INTEGER,
 			data_entrada_sociedade TEXT,
-			pais TEXT,
+			pais INTEGER,
 			representante_legal TEXT,
 			nome_representante TEXT,
-			qualificacao_representante_legal TEXT,
-			faixa_etaria TEXT
+			qualificacao_representante_legal INTEGER,
+			faixa_etaria INTEGER
 		);`,
 	}
 	for _, q := range stmts {
@@ -495,22 +495,106 @@ func loadEstabelecimentos(ctx context.Context, db *sql.DB, path string) error {
 		"data_situacao_especial",
 	}
 	return txInsert(ctx, db, "estabelecimentos", cols, func(emit func([]any) error) error {
+		lineNum := 0
 		for {
 			rec, err := r.Read()
+			lineNum++
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			if err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
+
+			// Validação: layout Estabelecimentos: 30 colunas
+			if len(rec) < 30 {
+				return fmt.Errorf("line %d: expected 30 columns, got %d", lineNum, len(rec))
+			}
+
 			vals := make([]any, len(cols))
-			for i := range cols {
-				if i < len(rec) {
-					vals[i] = strings.TrimSpace(rec[i])
-				}
+
+			// Campo 0: CNPJ BÁSICO - TEXT, obrigatório
+			vals[0] = strings.TrimSpace(rec[0])
+			if vals[0] == "" {
+				return fmt.Errorf("line %d: cnpj_basico cannot be empty", lineNum)
 			}
+
+			// Campo 1: CNPJ ORDEM - TEXT, obrigatório
+			vals[1] = strings.TrimSpace(rec[1])
+			if vals[1] == "" {
+				return fmt.Errorf("line %d: cnpj_ordem cannot be empty", lineNum)
+			}
+
+			// Campo 2: CNPJ DV - TEXT, obrigatório
+			vals[2] = strings.TrimSpace(rec[2])
+			if vals[2] == "" {
+				return fmt.Errorf("line %d: cnpj_dv cannot be empty", lineNum)
+			}
+
+			// Campo 3: IDENTIFICADOR MATRIZ/FILIAL - INTEGER (1=matriz, 2=filial)
+			matrizFilial := strings.TrimSpace(rec[3])
+			vals[3] = parseIntOrNil(matrizFilial)
+
+			// Campo 4: NOME FANTASIA - TEXT
+			vals[4] = trimOrNil(rec[4])
+
+			// Campo 5: SITUAÇÃO CADASTRAL - INTEGER (01=nula, 2=ativa, 3=suspensa, 4=inapta, 08=baixada)
+			vals[5] = parseIntOrNil(strings.TrimSpace(rec[5]))
+
+			// Campo 6: DATA SITUAÇÃO CADASTRAL - TEXT (formato: YYYYMMDD)
+			vals[6] = trimOrNil(rec[6])
+
+			// Campo 7: MOTIVO SITUAÇÃO CADASTRAL - INTEGER (código)
+			vals[7] = parseIntOrNil(strings.TrimSpace(rec[7]))
+
+			// Campo 8: NOME DA CIDADE NO EXTERIOR - TEXT
+			vals[8] = trimOrNil(rec[8])
+
+			// Campo 9: PAÍS - INTEGER (código)
+			vals[9] = parseIntOrNil(strings.TrimSpace(rec[9]))
+
+			// Campo 10: DATA DE INÍCIO ATIVIDADE - TEXT (formato: YYYYMMDD)
+			vals[10] = trimOrNil(rec[10])
+
+			// Campo 11: CNAE FISCAL PRINCIPAL - INTEGER (código)
+			vals[11] = parseIntOrNil(strings.TrimSpace(rec[11]))
+
+			// Campo 12: CNAE FISCAL SECUNDÁRIA - TEXT (separado por vírgula)
+			vals[12] = trimOrNil(rec[12])
+
+			// Campos 13-18: Endereço - TEXT
+			vals[13] = trimOrNil(rec[13]) // tipo_logradouro
+			vals[14] = trimOrNil(rec[14]) // logradouro
+			vals[15] = trimOrNil(rec[15]) // numero
+			vals[16] = trimOrNil(rec[16]) // complemento
+			vals[17] = trimOrNil(rec[17]) // bairro
+			vals[18] = trimOrNil(rec[18]) // cep
+
+			// Campo 19: UF - TEXT (2 caracteres)
+			vals[19] = trimOrNil(rec[19])
+
+			// Campo 20: MUNICÍPIO - INTEGER (código)
+			vals[20] = parseIntOrNil(strings.TrimSpace(rec[20]))
+
+			// Campos 21-26: Telefones - TEXT
+			vals[21] = trimOrNil(rec[21]) // ddd1
+			vals[22] = trimOrNil(rec[22]) // telefone1
+			vals[23] = trimOrNil(rec[23]) // ddd2
+			vals[24] = trimOrNil(rec[24]) // telefone2
+			vals[25] = trimOrNil(rec[25]) // ddd_fax
+			vals[26] = trimOrNil(rec[26]) // fax
+
+			// Campo 27: CORREIO ELETRÔNICO - TEXT
+			vals[27] = trimOrNil(rec[27])
+
+			// Campo 28: SITUAÇÃO ESPECIAL - TEXT
+			vals[28] = trimOrNil(rec[28])
+
+			// Campo 29: DATA DA SITUAÇÃO ESPECIAL - TEXT (formato: YYYYMMDD)
+			vals[29] = trimOrNil(rec[29])
+
 			if err := emit(vals); err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
 		}
 	})
@@ -621,25 +705,50 @@ func loadSimples(ctx context.Context, db *sql.DB, path string) error {
 		"data_exclusao_mei",
 	}
 	return txInsert(ctx, db, "simples", cols, func(emit func([]any) error) error {
+		lineNum := 0
 		for {
 			rec, err := r.Read()
+			lineNum++
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			if err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
-			// RFB layout Simples: 7 colunas (cnpj_basico + 6 campos do Simples Nacional)
+
+			// Validação: layout Simples: 7 colunas
+			if len(rec) < 7 {
+				return fmt.Errorf("line %d: expected 7 columns, got %d", lineNum, len(rec))
+			}
+
 			vals := make([]any, len(cols))
-			for i := range cols {
-				if i < len(rec) {
-					vals[i] = strings.TrimSpace(rec[i])
-				} else {
-					vals[i] = nil
-				}
+
+			// Campo 0: CNPJ BÁSICO - TEXT, obrigatório
+			vals[0] = strings.TrimSpace(rec[0])
+			if vals[0] == "" {
+				return fmt.Errorf("line %d: cnpj_basico cannot be empty", lineNum)
 			}
+
+			// Campo 1: OPÇÃO PELO SIMPLES - TEXT (S/N/branco)
+			vals[1] = trimOrNil(rec[1])
+
+			// Campo 2: DATA DE OPÇÃO PELO SIMPLES - TEXT (formato: YYYYMMDD)
+			vals[2] = trimOrNil(rec[2])
+
+			// Campo 3: DATA DE EXCLUSÃO DO SIMPLES - TEXT (formato: YYYYMMDD)
+			vals[3] = trimOrNil(rec[3])
+
+			// Campo 4: OPÇÃO PELO MEI - TEXT (S/N/branco)
+			vals[4] = trimOrNil(rec[4])
+
+			// Campo 5: DATA DE OPÇÃO PELO MEI - TEXT (formato: YYYYMMDD)
+			vals[5] = trimOrNil(rec[5])
+
+			// Campo 6: DATA DE EXCLUSÃO DO MEI - TEXT (formato: YYYYMMDD)
+			vals[6] = trimOrNil(rec[6])
+
 			if err := emit(vals); err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
 		}
 	})
@@ -665,25 +774,63 @@ func loadSocios(ctx context.Context, db *sql.DB, path string) error {
 		"faixa_etaria",
 	}
 	return txInsert(ctx, db, "socios", cols, func(emit func([]any) error) error {
+		lineNum := 0
 		for {
 			rec, err := r.Read()
+			lineNum++
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			if err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
-			// RFB layout Socios: 11 colunas (conforme metadados da RFB)
+
+			// Validação: layout Sócios: 11 colunas
+			if len(rec) < 11 {
+				return fmt.Errorf("line %d: expected 11 columns, got %d", lineNum, len(rec))
+			}
+
 			vals := make([]any, len(cols))
-			for i := range cols {
-				if i < len(rec) {
-					vals[i] = strings.TrimSpace(rec[i])
-				} else {
-					vals[i] = nil
-				}
+
+			// Campo 0: CNPJ BÁSICO - TEXT, obrigatório
+			vals[0] = strings.TrimSpace(rec[0])
+			if vals[0] == "" {
+				return fmt.Errorf("line %d: cnpj_basico cannot be empty", lineNum)
 			}
+
+			// Campo 1: IDENTIFICADOR DE SÓCIO - INTEGER (1=PJ, 2=PF, 3=estrangeiro)
+			vals[1] = parseIntOrNil(strings.TrimSpace(rec[1]))
+
+			// Campo 2: NOME DO SÓCIO (PF) OU RAZÃO SOCIAL (PJ) - TEXT
+			vals[2] = trimOrNil(rec[2])
+
+			// Campo 3: CNPJ/CPF DO SÓCIO - TEXT (descaracterizado: ***123456**)
+			// Nota: CPF com 3 primeiros dígitos e 2 últimos ocultados
+			vals[3] = trimOrNil(rec[3])
+
+			// Campo 4: QUALIFICAÇÃO DO SÓCIO - INTEGER (código)
+			vals[4] = parseIntOrNil(strings.TrimSpace(rec[4]))
+
+			// Campo 5: DATA DE ENTRADA SOCIEDADE - TEXT (formato: YYYYMMDD)
+			vals[5] = trimOrNil(rec[5])
+
+			// Campo 6: PAÍS - INTEGER (código do país, sócio estrangeiro)
+			vals[6] = parseIntOrNil(strings.TrimSpace(rec[6]))
+
+			// Campo 7: REPRESENTANTE LEGAL - TEXT (CPF, descaracterizado)
+			vals[7] = trimOrNil(rec[7])
+
+			// Campo 8: NOME DO REPRESENTANTE - TEXT
+			vals[8] = trimOrNil(rec[8])
+
+			// Campo 9: QUALIFICAÇÃO DO REPRESENTANTE LEGAL - INTEGER (código)
+			vals[9] = parseIntOrNil(strings.TrimSpace(rec[9]))
+
+			// Campo 10: FAIXA ETÁRIA - INTEGER (0-9: 0=não aplica, 1=0-12, 2=13-20, ..., 9=>80)
+			vals[10] = parseIntOrNil(strings.TrimSpace(rec[10]))
+
 			if err := emit(vals); err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
 		}
 	})
@@ -694,6 +841,23 @@ func joinRest(ss []string) string {
 		ss[i] = strings.TrimSpace(ss[i])
 	}
 	return strings.Join(ss, ";")
+}
+
+// trimOrNil retorna o valor trimmed ou nil se vazio
+func trimOrNil(s string) any {
+	v := strings.TrimSpace(s)
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+// parseIntOrNil converte string para int ou retorna nil se vazio/inválido
+func parseIntOrNil(s string) any {
+	if s == "" || s == "0" || s == "00" {
+		return nil
+	}
+	return s // SQLite converterá para INTEGER
 }
 
 func showStats(ctx context.Context, db *sql.DB) error {
