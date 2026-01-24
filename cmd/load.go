@@ -74,12 +74,12 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 	stmts := []string{
 		`PRAGMA foreign_keys=OFF;`,
 		`CREATE TABLE IF NOT EXISTS empresas (
-			cnpj_basico TEXT PRIMARY KEY,
-			razao_social TEXT,
-			natureza_juridica TEXT,
-			qualificacao_responsavel TEXT,
-			capital_social TEXT,
-			porte_empresa TEXT,
+			cnpj_basico TEXT PRIMARY KEY NOT NULL,
+			razao_social TEXT NOT NULL,
+			natureza_juridica INTEGER,
+			qualificacao_responsavel INTEGER,
+			capital_social REAL DEFAULT 0.0,
+			porte_empresa INTEGER,
 			ente_federativo TEXT
 		);`,
 		`CREATE TABLE IF NOT EXISTS estabelecimentos (
@@ -223,65 +223,75 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
+// entityLoader representa um carregador de entidade
+type entityLoader struct {
+	name    string
+	pattern string
+	loader  func(context.Context, *sql.DB, string) error
+}
+
 func loadAll(ctx context.Context, db *sql.DB, dir string) error {
+	// Ordem de carga: tabelas de referência primeiro, depois dados principais
+	loaders := []entityLoader{
+		// 1. Tabelas de referência (necessárias para validação)
+		{name: "Países", pattern: "PAIS", loader: loadPaises},
+		{name: "Municípios", pattern: "MUNIC", loader: loadMunicipios},
+		{name: "CNAEs", pattern: "CNAE", loader: loadCnaes},
+		{name: "Qualificações", pattern: "QUALS", loader: loadQualificacoes},
+		{name: "Naturezas Jurídicas", pattern: "NATJU", loader: loadNaturezasJuridicas},
+		{name: "Motivos", pattern: "MOTI", loader: loadMotivos},
+
+		// 2. Dados principais (ordem lógica: empresa -> estabelecimento -> sócios)
+		{name: "Empresas", pattern: "EMPRE", loader: loadEmpresas},
+		{name: "Estabelecimentos", pattern: "ESTABELE", loader: loadEstabelecimentos},
+		{name: "Simples Nacional", pattern: "SIMPLES", loader: loadSimples},
+		{name: "Sócios", pattern: "SOCIO", loader: loadSocios},
+	}
+
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
+
+	// Mapear arquivos disponíveis
+	files := make(map[string][]string)
 	for _, e := range entries {
 		if e.IsDir() {
 			continue
 		}
 		name := e.Name()
-		path := filepath.Join(dir, name)
 		upper := strings.ToUpper(name)
-
-		// Detectar arquivos pelos padrões da Receita Federal
-		switch {
-		case strings.Contains(upper, "EMPRE"):
-			if err := loadEmpresas(ctx, db, path); err != nil {
-				return err
+		for _, l := range loaders {
+			if strings.Contains(upper, l.pattern) {
+				files[l.pattern] = append(files[l.pattern], filepath.Join(dir, name))
+				break
 			}
-		case strings.Contains(upper, "ESTABELE"):
-			if err := loadEstabelecimentos(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "CNAE"):
-			if err := loadCnaes(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "MUNIC"):
-			if err := loadMunicipios(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "PAIS"):
-			if err := loadPaises(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "QUALS"):
-			if err := loadQualificacoes(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "NATJU"):
-			if err := loadNaturezasJuridicas(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "MOTI"):
-			if err := loadMotivos(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "SIMPLES"):
-			if err := loadSimples(ctx, db, path); err != nil {
-				return err
-			}
-		case strings.Contains(upper, "SOCIO"):
-			if err := loadSocios(ctx, db, path); err != nil {
-				return err
-			}
-		default:
-			logger.Info("skip file", slog.String("name", name))
 		}
 	}
+
+	// Carregar na ordem definida
+	for _, l := range loaders {
+		paths, ok := files[l.pattern]
+		if !ok {
+			logger.Warn("no files found for entity", slog.String("entity", l.name))
+			continue
+		}
+
+		logger.Info("loading entity", slog.String("entity", l.name), slog.Int("files", len(paths)))
+
+		for _, path := range paths {
+			logger.Info("processing file",
+				slog.String("entity", l.name),
+				slog.String("file", filepath.Base(path)))
+
+			if err := l.loader(ctx, db, path); err != nil {
+				return fmt.Errorf("failed to load %s from %s: %w", l.name, filepath.Base(path), err)
+			}
+		}
+
+		logger.Info("entity loaded successfully", slog.String("entity", l.name))
+	}
+
 	return nil
 }
 
@@ -365,25 +375,82 @@ func loadEmpresas(ctx context.Context, db *sql.DB, path string) error {
 		"ente_federativo",
 	}
 	return txInsert(ctx, db, "empresas", cols, func(emit func([]any) error) error {
+		lineNum := 0
 		for {
 			rec, err := r.Read()
+			lineNum++
 			if errors.Is(err, io.EOF) {
 				return nil
 			}
 			if err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
-			// RFB layout Empresas: 7 colunas (vide dicionário)
+
+			// Validação: RFB layout Empresas: 7 colunas obrigatórias
+			if len(rec) < 7 {
+				return fmt.Errorf("line %d: expected 7 columns, got %d", lineNum, len(rec))
+			}
+
 			vals := make([]any, len(cols))
-			for i := range cols {
-				if i < len(rec) {
-					vals[i] = strings.TrimSpace(rec[i])
-				} else {
-					vals[i] = nil
-				}
+
+			// Campo 0: CNPJ BÁSICO (8 dígitos) - TEXT, obrigatório
+			cnpjBasico := strings.TrimSpace(rec[0])
+			if cnpjBasico == "" {
+				return fmt.Errorf("line %d: cnpj_basico cannot be empty", lineNum)
 			}
+			vals[0] = cnpjBasico
+
+			// Campo 1: RAZÃO SOCIAL - TEXT, obrigatório
+			razaoSocial := strings.TrimSpace(rec[1])
+			if razaoSocial == "" {
+				return fmt.Errorf("line %d: razao_social cannot be empty", lineNum)
+			}
+			vals[1] = razaoSocial
+
+			// Campo 2: NATUREZA JURÍDICA - INTEGER (código)
+			natureza := strings.TrimSpace(rec[2])
+			if natureza == "" {
+				vals[2] = nil
+			} else {
+				vals[2] = natureza // Será convertido para INTEGER pelo SQLite
+			}
+
+			// Campo 3: QUALIFICAÇÃO DO RESPONSÁVEL - INTEGER (código)
+			qualif := strings.TrimSpace(rec[3])
+			if qualif == "" {
+				vals[3] = nil
+			} else {
+				vals[3] = qualif
+			}
+
+			// Campo 4: CAPITAL SOCIAL - REAL (valor monetário)
+			capital := strings.TrimSpace(rec[4])
+			if capital == "" || capital == "0" {
+				vals[4] = 0.0
+			} else {
+				// Capital vem como string "10000,00" - converter para float
+				capital = strings.ReplaceAll(capital, ",", ".")
+				vals[4] = capital // SQLite converterá para REAL
+			}
+
+			// Campo 5: PORTE DA EMPRESA - INTEGER (código: 00, 01, 03, 05)
+			porte := strings.TrimSpace(rec[5])
+			if porte == "" || porte == "00" {
+				vals[5] = nil
+			} else {
+				vals[5] = porte
+			}
+
+			// Campo 6: ENTE FEDERATIVO RESPONSÁVEL - TEXT (apenas para natureza 1XXX)
+			ente := strings.TrimSpace(rec[6])
+			if ente == "" {
+				vals[6] = nil
+			} else {
+				vals[6] = ente
+			}
+
 			if err := emit(vals); err != nil {
-				return err
+				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
 		}
 	})
