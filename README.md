@@ -48,7 +48,27 @@ go build -o bcd
 
 # 3) Carregar no SQLite (gera ./cnpj.sqlite por padrão)
 ./bcd load     --ym 2025-01 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite
+
+# 3a) Se encontrar erro de memória, use --skip-vacuum
+./bcd load     --ym 2025-01 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite --skip-vacuum
 ```
+
+### Requisitos de Memória
+
+O processo de load requer memória suficiente, especialmente durante a operação **VACUUM**:
+
+- **Mínimo recomendado:** 8GB de RAM
+- **Ideal:** 16GB+ de RAM
+- **VACUUM desabilitado:** 4GB de RAM pode ser suficiente
+
+**Se você encontrar erro "out of memory (7)":**
+
+```bash
+# Use a flag --skip-vacuum para pular a otimização VACUUM
+./bcd load --ym 2025-01 --workdir /tmp/cnpj_rf --skip-vacuum
+```
+
+> ⚠️ **Nota:** Pular o VACUUM resultará em um arquivo `.sqlite` maior (~20-30% maior), mas o banco será totalmente funcional. Você pode executar VACUUM manualmente depois em uma máquina com mais memória usando: `sqlite3 cnpj.sqlite "VACUUM;"`
 
 ### Download Automatizado (Recomendado)
 

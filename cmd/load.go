@@ -198,9 +198,26 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 	}
 
 	// VACUUM otimiza o arquivo físico (remove espaço livre, desfragmenta)
-	logger.Info("vacuuming database - this may take a while...")
-	if err := exec(ctx, db, `VACUUM;`); err != nil {
-		return err
+	// Pode ser pulado em ambientes com pouca memória usando --skip-vacuum
+	if !flagSkipVacuum {
+		logger.Info("vacuuming database - this may take a while...")
+		logger.Info("note: VACUUM requires available memory (~2x database size)")
+		logger.Info("if you encounter out-of-memory errors, use --skip-vacuum flag")
+		
+		// Reduzir cache temporariamente para liberar memória para VACUUM
+		// VACUUM precisa de memória para criar uma cópia do banco
+		if err := exec(ctx, db, `PRAGMA cache_size=-16000;`); err != nil { // 16MB temporariamente
+			return err
+		}
+		
+		if err := exec(ctx, db, `VACUUM;`); err != nil {
+			return fmt.Errorf("VACUUM failed - try using --skip-vacuum flag: %w", err)
+		}
+		
+		logger.Info("vacuum completed successfully")
+	} else {
+		logger.Info("skipping VACUUM operation (--skip-vacuum enabled)")
+		logger.Info("note: database size may be larger without VACUUM")
 	}
 
 	// Otimiza PRAGMAs para LEITURA (depois do load)
@@ -211,6 +228,7 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 		`PRAGMA synchronous=NORMAL;`,  // Balanço segurança/performance
 		`PRAGMA temp_store=MEMORY;`,   // Mantém temp em RAM
 		`PRAGMA mmap_size=268435456;`, // 256MB memory-mapped I/O
+		`PRAGMA cache_size=-64000;`,   // Restaurar 64MB de cache
 	}
 	for _, q := range optimizeForReads {
 		if err := exec(ctx, db, q); err != nil {
