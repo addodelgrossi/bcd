@@ -10,10 +10,11 @@ import (
 )
 
 var (
-	flagYearMonth string
-	flagWorkdir   string
-	flagOutDB     string
-	logger        *slog.Logger
+	flagYearMonth  string
+	flagWorkdir    string
+	flagOutDB      string
+	flagSkipVacuum bool
+	logger         *slog.Logger
 	// Version is set via ldflags during build
 	Version = "dev"
 )
@@ -49,4 +50,5 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&flagYearMonth, "ym", "", "ano-mês (YYYY-MM), ex: 2025-10")
 	RootCmd.PersistentFlags().StringVar(&flagWorkdir, "workdir", "", "diretório de trabalho (default /tmp/cnpj_rf)")
 	RootCmd.PersistentFlags().StringVar(&flagOutDB, "out", "", "arquivo SQLite de saída (default ./cnpj.sqlite)")
+	RootCmd.PersistentFlags().BoolVar(&flagSkipVacuum, "skip-vacuum", false, "pula a operação VACUUM (útil em ambientes com pouca memória)")
 }
