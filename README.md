@@ -68,7 +68,12 @@ O processo de load requer memória suficiente, especialmente durante a operaçã
 ./bcd load --ym 2025-01 --workdir /tmp/cnpj_rf --skip-vacuum
 ```
 
-> ⚠️ **Nota:** Pular o VACUUM resultará em um arquivo `.sqlite` maior (~20-30% maior), mas o banco será totalmente funcional. Você pode executar VACUUM manualmente depois em uma máquina com mais memória usando: `sqlite3 cnpj.sqlite "VACUUM;"`
+> ⚠️ **Nota:** Pular o VACUUM resultará em um arquivo `.sqlite` maior (~20-30% maior), mas o banco será totalmente funcional.
+>
+> Você pode executar VACUUM manualmente depois em uma máquina com mais memória:
+> ```bash
+> sqlite3 cnpj.sqlite "VACUUM;"
+> ```
 
 ### Download Automatizado (Recomendado)
 
