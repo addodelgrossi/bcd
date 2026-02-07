@@ -134,5 +134,6 @@ CREATE INDEX IF NOT EXISTS idx_estab_cep ON estabelecimentos(cep);
 -- Indice para matriz/filial (util para agregacoes)
 CREATE INDEX IF NOT EXISTS idx_estab_matriz_filial ON estabelecimentos(identificador_matriz_filial);
 
--- Indices para socios (consultas por empresa)
+-- Indices para socios (consultas por empresa e por CPF)
 CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);
+CREATE INDEX IF NOT EXISTS idx_socios_cpf ON socios(cnpj_cpf_socio);

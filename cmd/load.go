@@ -187,8 +187,9 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 		// Índice para matriz/filial (útil para agregações)
 		`CREATE INDEX IF NOT EXISTS idx_estab_matriz_filial ON estabelecimentos(identificador_matriz_filial);`,
 
-		// Índices para socios (consultas por empresa)
+		// Índices para socios (consultas por empresa e por CPF)
 		`CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);`,
+		`CREATE INDEX IF NOT EXISTS idx_socios_cpf ON socios(cnpj_cpf_socio);`,
 	}
 	for _, q := range stmts {
 		logger.Info("creating index", slog.String("stmt", q))

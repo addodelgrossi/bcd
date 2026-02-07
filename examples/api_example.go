@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"regexp"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -47,6 +48,21 @@ type Estabelecimento struct {
 type EmpresaCompleta struct {
 	Empresa         Empresa         `json:"empresa"`
 	Estabelecimento Estabelecimento `json:"estabelecimento"`
+}
+
+type Partner struct {
+	CNPJBasico     string `json:"cnpj_basico"`
+	Name           string `json:"name"`
+	Document       string `json:"document"`
+	Qualification  string `json:"qualification"`
+	EntryDate      string `json:"entry_date"`
+	AgeRange       string `json:"age_range"`
+}
+
+type CompanyPartner struct {
+	Partner       Partner       `json:"partner"`
+	Company       Empresa       `json:"company"`
+	Establishment Estabelecimento `json:"establishment"`
 }
 
 // Database wrapper
@@ -163,6 +179,72 @@ func (db *DB) BuscarPorMunicipio(ctx context.Context, uf, municipio string, limi
 	return result, rows.Err()
 }
 
+var cpfRegex = regexp.MustCompile(`^\d{11}$`)
+
+// FindCompaniesByPartnerCPF returns companies associated with a partner's CPF.
+// The CPF is converted to the obfuscated format used by RFB: ***456789**
+func (db *DB) FindCompaniesByPartnerCPF(ctx context.Context, cpf string) ([]CompanyPartner, error) {
+	// Convert CPF to obfuscated format: ***<digits 4-9>**
+	obfuscatedCPF := "***" + cpf[3:9] + "**"
+
+	query := `
+		SELECT
+			s.cnpj_basico, s.nome_socio, s.cnpj_cpf_socio, s.qualificacao_socio,
+			s.data_entrada_sociedade, s.faixa_etaria,
+			e.razao_social, e.natureza_juridica,
+			e.qualificacao_responsavel, e.capital_social, e.porte_empresa, e.ente_federativo,
+			est.cnpj_ordem, est.cnpj_dv, est.identificador_matriz_filial, est.nome_fantasia,
+			est.situacao_cadastral, est.data_situacao_cadastral, est.cnae_fiscal_principal,
+			est.logradouro, est.numero, est.bairro, est.cep, est.uf, est.municipio,
+			est.telefone1, est.correio_eletronico
+		FROM socios s
+		JOIN empresas e ON s.cnpj_basico = e.cnpj_basico
+		JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
+			AND est.identificador_matriz_filial = 1
+		WHERE s.cnpj_cpf_socio = ?
+			AND s.identificador_socio = 2
+	`
+
+	rows, err := db.conn.QueryContext(ctx, query, obfuscatedCPF)
+	if err != nil {
+		return nil, fmt.Errorf("query failed: %w", err)
+	}
+	defer rows.Close()
+
+	var result []CompanyPartner
+	for rows.Next() {
+		var p Partner
+		var emp Empresa
+		var est Estabelecimento
+
+		err := rows.Scan(
+			&p.CNPJBasico, &p.Name, &p.Document, &p.Qualification,
+			&p.EntryDate, &p.AgeRange,
+			&emp.RazaoSocial, &emp.NaturezaJuridica,
+			&emp.QualificacaoResp, &emp.CapitalSocial, &emp.PorteEmpresa, &emp.EnteFederativo,
+			&est.CNPJOrdem, &est.CNPJDV, &est.IdentificadorMF, &est.NomeFantasia,
+			&est.SituacaoCadastral, &est.DataSituacaoCadastral, &est.CNAEFiscalPrincipal,
+			&est.Logradouro, &est.Numero, &est.Bairro, &est.CEP, &est.UF, &est.Municipio,
+			&est.Telefone1, &est.CorreioEletronico,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("scan failed: %w", err)
+		}
+
+		emp.CNPJBasico = p.CNPJBasico
+		est.CNPJBasico = p.CNPJBasico
+		est.CNPJCompleto = fmt.Sprintf("%s%s%s", p.CNPJBasico, est.CNPJOrdem, est.CNPJDV)
+
+		result = append(result, CompanyPartner{
+			Partner:       p,
+			Company:       emp,
+			Establishment: est,
+		})
+	}
+
+	return result, rows.Err()
+}
+
 // HTTP Handlers
 type API struct {
 	db *DB
@@ -218,6 +300,27 @@ func (api *API) handleBuscarPorMunicipio(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(result)
 }
 
+func (api *API) handleFindByPartnerCPF(w http.ResponseWriter, r *http.Request) {
+	cpf := r.URL.Query().Get("cpf")
+	if !cpfRegex.MatchString(cpf) {
+		http.Error(w, "'cpf' parameter must contain exactly 11 numeric digits", http.StatusBadRequest)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	result, err := api.db.FindCompaniesByPartnerCPF(ctx, cpf)
+	if err != nil {
+		log.Printf("ERROR: %v", err)
+		http.Error(w, "failed to search companies by partner CPF", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 func (api *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
 	defer cancel()
@@ -256,6 +359,7 @@ func main() {
 	http.HandleFunc("/health", api.handleHealth)
 	http.HandleFunc("/api/empresa", api.handleBuscarEmpresa)
 	http.HandleFunc("/api/municipio", api.handleBuscarPorMunicipio)
+	http.HandleFunc("/api/partner", api.handleFindByPartnerCPF)
 
 	// Iniciar servidor
 	addr := ":" + port
@@ -264,6 +368,7 @@ func main() {
 	log.Printf("  GET /health")
 	log.Printf("  GET /api/empresa?cnpj=12345678")
 	log.Printf("  GET /api/municipio?uf=SP&municipio=7107")
+	log.Printf("  GET /api/partner?cpf=12345678901")
 
 	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatalf("Server failed: %v", err)
