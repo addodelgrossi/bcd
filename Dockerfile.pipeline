@@ -1,0 +1,35 @@
+# Multi-stage build for BCD Pipeline (ECS Fargate Scheduled Task)
+# Builds a self-contained binary that runs: download → extract → load → S3 upload
+
+# Stage 1: Build
+FROM golang:1.24-alpine AS builder
+
+RUN apk add --no-cache git ca-certificates
+
+WORKDIR /app
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-s -w" \
+    -o bcd \
+    .
+
+# Stage 2: Runtime
+FROM alpine:latest
+
+RUN apk --no-cache add ca-certificates tzdata
+
+RUN addgroup -g 1000 bcd && \
+    adduser -D -u 1000 -G bcd bcd
+
+WORKDIR /app
+
+COPY --from=builder --chown=bcd:bcd /app/bcd .
+
+USER bcd
+
+ENTRYPOINT ["./bcd", "pipeline"]

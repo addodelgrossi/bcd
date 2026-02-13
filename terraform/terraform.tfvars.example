@@ -1,0 +1,28 @@
+# Required variables
+ecs_cluster_name    = "my-cluster"
+vpc_id              = "vpc-xxxxxxxxx"
+subnet_ids          = ["subnet-aaa", "subnet-bbb"]
+ecr_repository_url  = "123456789012.dkr.ecr.us-east-1.amazonaws.com/bcd-pipeline"
+s3_bucket_name      = "my-cnpj-data-bucket"
+
+# Optional overrides
+# aws_region           = "us-east-1"
+# project_name         = "bcd-pipeline"
+# image_tag            = "latest"
+# s3_prefix            = "cnpj"
+# storage_class        = "INTELLIGENT_TIERING"
+# create_latest_link   = true
+# cleanup_old_versions = false
+# keep_versions        = 3
+# schedule_expression  = "cron(0 2 5 * ? *)"
+# schedule_timezone    = "UTC"
+# task_cpu             = 4096
+# task_memory          = 8192
+# ephemeral_storage_gb = 200
+# bcd_mode             = "zip"
+# skip_vacuum          = false
+# assign_public_ip     = true
+# tags = {
+#   Environment = "production"
+#   Team        = "data-engineering"
+# }

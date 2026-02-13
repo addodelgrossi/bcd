@@ -153,6 +153,7 @@ func downloadZips() error {
 			return fmt.Errorf("nenhuma pasta YYYY-MM encontrada no WebDAV")
 		}
 		ym = folders[0]
+		flagYearMonth = ym // persist for downstream use (pipeline command)
 		logger.Info("mês mais recente detectado", slog.String("ym", ym))
 	}
 	folderURL := webdavBase() + ym + "/"
