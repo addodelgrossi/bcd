@@ -72,8 +72,10 @@ type DB struct {
 
 // NewDB inicializa conexão otimizada para leitura
 func NewDB(dbPath string) (*DB, error) {
-	// Connection string com PRAGMAs otimizados para read-only
-	dsn := fmt.Sprintf("file:%s?mode=ro&cache=shared&_pragma=journal_mode(WAL)&_pragma=query_only(1)", dbPath)
+	// Read-only connection. Don't set journal_mode here: that pragma requires
+	// write access and fails when mode=ro. WAL is a per-database setting
+	// applied once by the writer; readers pick it up automatically.
+	dsn := fmt.Sprintf("file:%s?mode=ro&cache=shared&_pragma=query_only(1)", dbPath)
 
 	db, err := sql.Open("sqlite", dsn)
 	if err != nil {
