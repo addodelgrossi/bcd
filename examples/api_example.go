@@ -100,14 +100,16 @@ func NewDB(dbPath string) (*DB, error) {
 
 // BuscarEmpresaPorCNPJ retorna empresa + estabelecimento principal
 func (db *DB) BuscarEmpresaPorCNPJ(ctx context.Context, cnpjBasico string) (*EmpresaCompleta, error) {
+	// COALESCE nullable columns to empty string so Scan into `string` fields
+	// doesn't fail with "converting NULL to string is unsupported".
 	query := `
 		SELECT
-			e.cnpj_basico, e.razao_social, e.natureza_juridica,
-			e.qualificacao_responsavel, e.capital_social, e.porte_empresa, e.ente_federativo,
-			est.cnpj_ordem, est.cnpj_dv, est.identificador_matriz_filial, est.nome_fantasia,
-			est.situacao_cadastral, est.data_situacao_cadastral, est.cnae_fiscal_principal,
-			est.logradouro, est.numero, est.bairro, est.cep, est.uf, est.municipio,
-			est.telefone1, est.correio_eletronico
+			COALESCE(e.cnpj_basico, ''), COALESCE(e.razao_social, ''), COALESCE(e.natureza_juridica, ''),
+			COALESCE(e.qualificacao_responsavel, ''), COALESCE(e.capital_social, ''), COALESCE(e.porte_empresa, ''), COALESCE(e.ente_federativo, ''),
+			COALESCE(est.cnpj_ordem, ''), COALESCE(est.cnpj_dv, ''), COALESCE(est.identificador_matriz_filial, ''), COALESCE(est.nome_fantasia, ''),
+			COALESCE(est.situacao_cadastral, ''), COALESCE(est.data_situacao_cadastral, ''), COALESCE(est.cnae_fiscal_principal, ''),
+			COALESCE(est.logradouro, ''), COALESCE(est.numero, ''), COALESCE(est.bairro, ''), COALESCE(est.cep, ''), COALESCE(est.uf, ''), COALESCE(est.municipio, ''),
+			COALESCE(est.telefone1, ''), COALESCE(est.correio_eletronico, '')
 		FROM empresas e
 		JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
 		WHERE e.cnpj_basico = ?
@@ -148,8 +150,8 @@ func (db *DB) BuscarEmpresaPorCNPJ(ctx context.Context, cnpjBasico string) (*Emp
 func (db *DB) BuscarPorMunicipio(ctx context.Context, uf, municipio string, limit int) ([]Estabelecimento, error) {
 	query := `
 		SELECT
-			cnpj_basico, cnpj_ordem, cnpj_dv, identificador_matriz_filial, nome_fantasia,
-			situacao_cadastral, cnae_fiscal_principal, logradouro, numero, bairro, cep, uf, municipio
+			COALESCE(cnpj_basico, ''), COALESCE(cnpj_ordem, ''), COALESCE(cnpj_dv, ''), COALESCE(identificador_matriz_filial, ''), COALESCE(nome_fantasia, ''),
+			COALESCE(situacao_cadastral, ''), COALESCE(cnae_fiscal_principal, ''), COALESCE(logradouro, ''), COALESCE(numero, ''), COALESCE(bairro, ''), COALESCE(cep, ''), COALESCE(uf, ''), COALESCE(municipio, '')
 		FROM estabelecimentos
 		WHERE uf = ?
 			AND municipio = ?
@@ -191,14 +193,14 @@ func (db *DB) FindCompaniesByPartnerCPF(ctx context.Context, cpf string) ([]Comp
 
 	query := `
 		SELECT
-			s.cnpj_basico, s.nome_socio, s.cnpj_cpf_socio, s.qualificacao_socio,
-			s.data_entrada_sociedade, s.faixa_etaria,
-			e.razao_social, e.natureza_juridica,
-			e.qualificacao_responsavel, e.capital_social, e.porte_empresa, e.ente_federativo,
-			est.cnpj_ordem, est.cnpj_dv, est.identificador_matriz_filial, est.nome_fantasia,
-			est.situacao_cadastral, est.data_situacao_cadastral, est.cnae_fiscal_principal,
-			est.logradouro, est.numero, est.bairro, est.cep, est.uf, est.municipio,
-			est.telefone1, est.correio_eletronico
+			COALESCE(s.cnpj_basico, ''), COALESCE(s.nome_socio, ''), COALESCE(s.cnpj_cpf_socio, ''), COALESCE(s.qualificacao_socio, ''),
+			COALESCE(s.data_entrada_sociedade, ''), COALESCE(s.faixa_etaria, ''),
+			COALESCE(e.razao_social, ''), COALESCE(e.natureza_juridica, ''),
+			COALESCE(e.qualificacao_responsavel, ''), COALESCE(e.capital_social, ''), COALESCE(e.porte_empresa, ''), COALESCE(e.ente_federativo, ''),
+			COALESCE(est.cnpj_ordem, ''), COALESCE(est.cnpj_dv, ''), COALESCE(est.identificador_matriz_filial, ''), COALESCE(est.nome_fantasia, ''),
+			COALESCE(est.situacao_cadastral, ''), COALESCE(est.data_situacao_cadastral, ''), COALESCE(est.cnae_fiscal_principal, ''),
+			COALESCE(est.logradouro, ''), COALESCE(est.numero, ''), COALESCE(est.bairro, ''), COALESCE(est.cep, ''), COALESCE(est.uf, ''), COALESCE(est.municipio, ''),
+			COALESCE(est.telefone1, ''), COALESCE(est.correio_eletronico, '')
 		FROM socios s
 		JOIN empresas e ON s.cnpj_basico = e.cnpj_basico
 		JOIN estabelecimentos est ON e.cnpj_basico = est.cnpj_basico
