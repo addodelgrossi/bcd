@@ -1,0 +1,116 @@
+name: Deploy to OCI
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-oci
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Build & Deploy to OCI
+    runs-on: ubuntu-latest
+    env:
+      OCI_SSH_HOST: ${{ vars.OCI_SSH_HOST }}
+      OCI_SSH_USER: ${{ vars.OCI_SSH_USER }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Build binaries for linux/arm64
+        env:
+          CGO_ENABLED: 0
+          GOOS: linux
+          GOARCH: arm64
+        run: |
+          mkdir -p dist
+          SHORT_SHA="${GITHUB_SHA::7}"
+          go build -v -trimpath \
+            -ldflags="-s -w -X github.com/addodelgrossi/bcd/cmd.Version=${SHORT_SHA}" \
+            -o dist/bcd .
+          go build -v -trimpath \
+            -ldflags="-s -w" \
+            -o dist/api ./examples/
+          cp schema.sql dist/
+          (cd dist && sha256sum bcd api schema.sql > SHA256SUMS)
+          tar -czf release.tar.gz -C dist .
+          ls -lh dist/ release.tar.gz
+          file dist/api dist/bcd
+
+      - name: Setup SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.OCI_SSH_PRIVATE_KEY }}
+          SSH_KNOWN_HOSTS: ${{ secrets.OCI_SSH_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Upload release tarball
+        run: |
+          scp -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            release.tar.gz \
+            "${OCI_SSH_USER}@${OCI_SSH_HOST}:/tmp/bcd-${GITHUB_SHA}.tar.gz"
+
+      - name: Activate release on server
+        run: |
+          ssh -o BatchMode=yes -o StrictHostKeyChecking=yes \
+            "${OCI_SSH_USER}@${OCI_SSH_HOST}" \
+            "SHA='${GITHUB_SHA}' bash -s" <<'REMOTE'
+          set -euo pipefail
+          REL="/opt/brazildata/releases/${SHA}"
+          TARBALL="/tmp/bcd-${SHA}.tar.gz"
+
+          echo "==> Extracting to ${REL}"
+          mkdir -p "${REL}"
+          tar -xzf "${TARBALL}" -C "${REL}"
+          chmod +x "${REL}/api" "${REL}/bcd"
+
+          echo "==> Verifying checksums"
+          (cd "${REL}" && sha256sum -c SHA256SUMS)
+
+          echo "==> Atomic symlink swap"
+          ln -sfn "${REL}/api" /opt/brazildata/bin/api.new
+          mv -Tf /opt/brazildata/bin/api.new /opt/brazildata/bin/api
+          ln -sfn "${REL}/bcd" /opt/brazildata/bin/bcd.new
+          mv -Tf /opt/brazildata/bin/bcd.new /opt/brazildata/bin/bcd
+
+          echo "==> Restarting brazildata-api.service"
+          sudo systemctl restart brazildata-api.service
+          sleep 3
+
+          echo "==> Service state:"
+          if sudo systemctl is-active brazildata-api.service; then
+            echo "Service is active."
+          else
+            echo "WARN: service not active (may be waiting on /opt/brazildata/data/cnpj.sqlite)"
+            sudo systemctl status brazildata-api.service --no-pager -n 30 || true
+          fi
+
+          echo "==> Cleaning up old releases (keeping last 3)"
+          ls -1dt /opt/brazildata/releases/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf
+          rm -f "${TARBALL}"
+
+          echo "==> Deploy complete: ${SHA}"
+          ls -la /opt/brazildata/bin/
+          REMOTE
+
+      - name: Cleanup SSH
+        if: always()
+        run: rm -f ~/.ssh/id_ed25519 ~/.ssh/known_hosts
