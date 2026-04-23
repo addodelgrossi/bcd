@@ -12,7 +12,8 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	awsconfig "github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/feature/s3/manager"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
+	tmtypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
 	"github.com/spf13/cobra"
@@ -120,23 +121,23 @@ func runPipeline() error {
 		return fmt.Errorf("open sqlite: %w", err)
 	}
 	if err := createSchema(ctx, db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return fmt.Errorf("schema: %w", err)
 	}
 	extracted := filepath.Join(cfg.Workdir, "extracted")
 	if err := loadAll(ctx, db, extracted); err != nil {
-		db.Close()
+		_ = db.Close()
 		return fmt.Errorf("load: %w", err)
 	}
 	if err := createIndexes(ctx, db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return fmt.Errorf("indexes: %w", err)
 	}
 	if err := showStats(ctx, db); err != nil {
-		db.Close()
+		_ = db.Close()
 		return fmt.Errorf("stats: %w", err)
 	}
-	db.Close()
+	_ = db.Close()
 	logger.Info("load completed", slog.String("duration", time.Since(loadStart).String()))
 
 	// 5. Upload to S3
@@ -218,7 +219,7 @@ func uploadToS3(ctx context.Context, cfg *pipelineConfig, localPath, key string)
 	if err != nil {
 		return fmt.Errorf("open %s: %w", localPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	info, err := f.Stat()
 	if err != nil {
@@ -232,18 +233,16 @@ func uploadToS3(ctx context.Context, cfg *pipelineConfig, localPath, key string)
 	)
 
 	client := s3.NewFromConfig(awsCfg)
-	uploader := manager.NewUploader(client, func(u *manager.Uploader) {
-		u.PartSize = s3PartSize
-		u.Concurrency = s3MaxConcurrent
+	tm := transfermanager.New(client, func(o *transfermanager.Options) {
+		o.PartSizeBytes = s3PartSize
+		o.Concurrency = s3MaxConcurrent
 	})
 
-	storageClass := types.StorageClass(cfg.StorageClass)
-
-	_, err = uploader.Upload(ctx, &s3.PutObjectInput{
+	_, err = tm.UploadObject(ctx, &transfermanager.UploadObjectInput{
 		Bucket:       aws.String(cfg.S3Bucket),
 		Key:          aws.String(key),
 		Body:         f,
-		StorageClass: storageClass,
+		StorageClass: tmtypes.StorageClass(cfg.StorageClass),
 	})
 	if err != nil {
 		return fmt.Errorf("s3 upload: %w", err)

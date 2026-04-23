@@ -35,7 +35,7 @@ var loadCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 		if err := createSchema(ctx, db); err != nil {
 			return err
 		}
@@ -355,7 +355,7 @@ func txInsert(ctx context.Context, db *sql.DB, table string, cols []string, iter
 	if err != nil {
 		return err
 	}
-	defer stmt.Close()
+	defer func() { _ = stmt.Close() }()
 
 	count := 0
 	lastLog := time.Now()
@@ -389,7 +389,7 @@ func loadEmpresas(ctx context.Context, db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	cols := []string{
 		"cnpj_basico",
 		"razao_social",
@@ -486,7 +486,7 @@ func loadEstabelecimentos(ctx context.Context, db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	cols := []string{
 		"cnpj_basico",
 		"cnpj_ordem",
@@ -630,7 +630,7 @@ func loadCnaes(ctx context.Context, db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	cols := []string{"codigo", "descricao"}
 	return txInsert(ctx, db, "cnaes", cols, func(emit func([]any) error) error {
 		for {
@@ -654,7 +654,7 @@ func loadMunicipios(ctx context.Context, db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	cols := []string{"codigo", "descricao"}
 	return txInsert(ctx, db, "municipios", cols, func(emit func([]any) error) error {
 		for {
@@ -695,7 +695,7 @@ func loadReferenceTable(ctx context.Context, db *sql.DB, path, tableName string)
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	cols := []string{"codigo", "descricao"}
 	return txInsert(ctx, db, tableName, cols, func(emit func([]any) error) error {
 		for {
@@ -719,7 +719,7 @@ func loadSimples(ctx context.Context, db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	cols := []string{
 		"cnpj_basico",
 		"opcao_simples",
@@ -784,7 +784,7 @@ func loadSocios(ctx context.Context, db *sql.DB, path string) error {
 	if err != nil {
 		return err
 	}
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	cols := []string{
 		"cnpj_basico",
 		"identificador_socio",

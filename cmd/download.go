@@ -75,7 +75,7 @@ func listFoldersWebDAV() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 207 {
 		return nil, fmt.Errorf("PROPFIND %s: %s", base, resp.Status)
 	}
@@ -115,7 +115,7 @@ func listZipsWebDAV(folderURL string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 207 {
 		return nil, fmt.Errorf("PROPFIND %s: %s", folderURL, resp.Status)
 	}
@@ -226,7 +226,7 @@ func httpDownload(url, out string) error {
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
@@ -234,7 +234,7 @@ func httpDownload(url, out string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	_, err = io.Copy(f, resp.Body)
 	return err
 }

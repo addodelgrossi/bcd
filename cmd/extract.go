@@ -64,12 +64,12 @@ func extractTar() error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", tarPath, err)
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	gz, err := gzip.NewReader(f)
 	if err != nil {
 		return fmt.Errorf("gzip reader: %w", err)
 	}
-	defer gz.Close()
+	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
 
 	var zipFiles []string
@@ -106,10 +106,10 @@ func extractTar() error {
 			return fmt.Errorf("create %s: %w", dst, err)
 		}
 		if _, err := io.Copy(w, tr); err != nil {
-			w.Close()
+			_ = w.Close()
 			return fmt.Errorf("write %s: %w", dst, err)
 		}
-		w.Close()
+		_ = w.Close()
 		logger.Info("extracted", slog.String("file", name))
 
 		if strings.HasSuffix(strings.ToLower(name), ".zip") {
@@ -134,7 +134,7 @@ func unzip(zipPath, dstRoot string) error {
 	if err != nil {
 		return err
 	}
-	defer r.Close()
+	defer func() { _ = r.Close() }()
 	for _, f := range r.File {
 		name := f.Name
 		if idx := strings.LastIndex(name, "/"); idx >= 0 {
@@ -157,16 +157,16 @@ func unzip(zipPath, dstRoot string) error {
 		}
 		w, err := os.Create(dst)
 		if err != nil {
-			rc.Close()
+			_ = rc.Close()
 			return err
 		}
 		if _, err := io.Copy(w, rc); err != nil {
-			w.Close()
-			rc.Close()
+			_ = w.Close()
+			_ = rc.Close()
 			return err
 		}
-		w.Close()
-		rc.Close()
+		_ = w.Close()
+		_ = rc.Close()
 		logger.Info("extracted", slog.String("file", name))
 	}
 	return nil

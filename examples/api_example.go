@@ -159,7 +159,7 @@ func (db *DB) BuscarPorMunicipio(ctx context.Context, uf, municipio string, limi
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []Estabelecimento
 	for rows.Next() {
@@ -209,7 +209,7 @@ func (db *DB) FindCompaniesByPartnerCPF(ctx context.Context, cpf string) ([]Comp
 	if err != nil {
 		return nil, fmt.Errorf("query failed: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var result []CompanyPartner
 	for rows.Next() {
@@ -274,7 +274,7 @@ func (api *API) handleBuscarEmpresa(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (api *API) handleBuscarPorMunicipio(w http.ResponseWriter, r *http.Request) {
@@ -297,7 +297,7 @@ func (api *API) handleBuscarPorMunicipio(w http.ResponseWriter, r *http.Request)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (api *API) handleFindByPartnerCPF(w http.ResponseWriter, r *http.Request) {
@@ -318,7 +318,7 @@ func (api *API) handleFindByPartnerCPF(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	_ = json.NewEncoder(w).Encode(result)
 }
 
 func (api *API) handleHealth(w http.ResponseWriter, r *http.Request) {
@@ -331,7 +331,7 @@ func (api *API) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "healthy"})
 }
 
 func main() {
@@ -350,7 +350,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Failed to initialize database: %v", err)
 	}
-	defer db.conn.Close()
+	defer func() { _ = db.conn.Close() }()
 
 	// Inicializar API
 	api := &API{db: db}
