@@ -150,9 +150,11 @@ Veja a pasta **[docs/](docs/)** para documentação completa:
 - [docs/BUGFIX_URL.md](docs/BUGFIX_URL.md) - Histórico de correções
 
 ### Exemplos de Código
-- [examples/api_example.go](examples/api_example.go) - API Golang de alta performance
 - [examples/queries.sql](examples/queries.sql) - 15+ queries SQL otimizadas
 - [examples/benchmark.sh](examples/benchmark.sh) - Script de load testing
+
+> Para a API HTTP em produção, veja o repo [brazildata/api](https://github.com/brazildata/api).
+> Este projeto (`bcd`) existe apenas para gerar o `cnpj.sqlite` que aquela API consome.
 
 ### Deployment
 - [Dockerfile.example](Dockerfile.example) - Dockerfile otimizado

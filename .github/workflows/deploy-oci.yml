@@ -1,5 +1,11 @@
 name: Deploy to OCI
 
+# Ships the `bcd` CLI to the OCI server so the operator can run the RFB
+# ingest (download → extract → load) directly there. This workflow is NOT
+# meant to deploy an HTTP API — the production API lives in brazildata/api
+# and owns /opt/brazildata/{bin/api, data, etc.}. Everything here stays
+# inside /home/ubuntu/ to avoid any path collision with that deploy.
+
 on:
   push:
     branches: [ main ]
@@ -14,7 +20,7 @@ concurrency:
 
 jobs:
   deploy:
-    name: Build & Deploy to OCI
+    name: Build & Deploy bcd CLI to OCI
     runs-on: ubuntu-latest
     env:
       OCI_SSH_HOST: ${{ vars.OCI_SSH_HOST }}
@@ -30,7 +36,7 @@ jobs:
           go-version-file: 'go.mod'
           cache: true
 
-      - name: Build binaries for linux/arm64
+      - name: Build bcd CLI for linux/arm64
         env:
           CGO_ENABLED: 0
           GOOS: linux
@@ -41,14 +47,11 @@ jobs:
           go build -v -trimpath \
             -ldflags="-s -w -X github.com/addodelgrossi/bcd/cmd.Version=${SHORT_SHA}" \
             -o dist/bcd .
-          go build -v -trimpath \
-            -ldflags="-s -w" \
-            -o dist/api ./examples/
           cp schema.sql dist/
-          (cd dist && sha256sum bcd api schema.sql > SHA256SUMS)
+          (cd dist && sha256sum bcd schema.sql > SHA256SUMS)
           tar -czf release.tar.gz -C dist .
           ls -lh dist/ release.tar.gz
-          file dist/api dist/bcd
+          file dist/bcd
 
       - name: Setup SSH
         env:
@@ -74,41 +77,32 @@ jobs:
             "${OCI_SSH_USER}@${OCI_SSH_HOST}" \
             "SHA='${GITHUB_SHA}' bash -s" <<'REMOTE'
           set -euo pipefail
-          REL="/opt/brazildata/releases/${SHA}"
+          REL="$HOME/bcd/releases/${SHA}"
           TARBALL="/tmp/bcd-${SHA}.tar.gz"
 
           echo "==> Extracting to ${REL}"
           mkdir -p "${REL}"
           tar -xzf "${TARBALL}" -C "${REL}"
-          chmod +x "${REL}/api" "${REL}/bcd"
+          chmod +x "${REL}/bcd"
 
           echo "==> Verifying checksums"
           (cd "${REL}" && sha256sum -c SHA256SUMS)
 
-          echo "==> Atomic symlink swap"
-          ln -sfn "${REL}/api" /opt/brazildata/bin/api.new
-          mv -Tf /opt/brazildata/bin/api.new /opt/brazildata/bin/api
-          ln -sfn "${REL}/bcd" /opt/brazildata/bin/bcd.new
-          mv -Tf /opt/brazildata/bin/bcd.new /opt/brazildata/bin/bcd
+          echo "==> Atomic symlink swap (~/bin/bcd)"
+          mkdir -p "$HOME/bin"
+          ln -sfn "${REL}/bcd" "$HOME/bin/bcd.new"
+          mv -Tf "$HOME/bin/bcd.new" "$HOME/bin/bcd"
 
-          echo "==> Restarting brazildata-api.service"
-          sudo systemctl restart brazildata-api.service
-          sleep 3
-
-          echo "==> Service state:"
-          if sudo systemctl is-active brazildata-api.service; then
-            echo "Service is active."
-          else
-            echo "WARN: service not active (may be waiting on /opt/brazildata/data/cnpj.sqlite)"
-            sudo systemctl status brazildata-api.service --no-pager -n 30 || true
-          fi
+          echo "==> bcd CLI smoke test"
+          "$HOME/bin/bcd" --help >/dev/null 2>&1 || "$HOME/bin/bcd" help >/dev/null 2>&1 || true
+          "$HOME/bin/bcd" --version 2>/dev/null || true
 
           echo "==> Cleaning up old releases (keeping last 3)"
-          ls -1dt /opt/brazildata/releases/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf
+          ls -1dt "$HOME/bcd/releases"/*/ 2>/dev/null | tail -n +4 | xargs -r rm -rf
           rm -f "${TARBALL}"
 
           echo "==> Deploy complete: ${SHA}"
-          ls -la /opt/brazildata/bin/
+          ls -la "$HOME/bin/bcd" "$HOME/bcd/releases"
           REMOTE
 
       - name: Cleanup SSH
