@@ -14,6 +14,7 @@ var (
 	flagWorkdir    string
 	flagOutDB      string
 	flagSkipVacuum bool
+	flagSkipFTS    bool
 	flagShareToken string
 	flagMode       string // "zip" or "tar"
 	logger         *slog.Logger
@@ -53,6 +54,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&flagWorkdir, "workdir", "", "diretório de trabalho (default /tmp/cnpj_rf)")
 	RootCmd.PersistentFlags().StringVar(&flagOutDB, "out", "", "arquivo SQLite de saída (default ./cnpj.sqlite)")
 	RootCmd.PersistentFlags().BoolVar(&flagSkipVacuum, "skip-vacuum", false, "pula a operação VACUUM (útil em ambientes com pouca memória)")
+	RootCmd.PersistentFlags().BoolVar(&flagSkipFTS, "skip-fts", false, "pula a criação das virtual tables FTS5 (empresas_fts, estabelecimentos_fts)")
 	RootCmd.PersistentFlags().StringVar(&flagShareToken, "share-token", "YggdBLfdninEJX9", "Nextcloud share token")
 	RootCmd.PersistentFlags().StringVar(&flagMode, "mode", "zip", "modo de download/extração: 'zip' ou 'tar'")
 }

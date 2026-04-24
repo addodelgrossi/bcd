@@ -51,7 +51,15 @@ go build -o bcd
 
 # 3a) Se encontrar erro de memória, use --skip-vacuum
 ./bcd load     --ym 2025-01 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite --skip-vacuum
+
+# 3b) Para pular a criação das FTS5 (busca textual), --skip-fts
+#     Ganha ~5–10 min + ~2–3 GB; em contrapartida /api/v1/companies?q= fica lento.
+./bcd load     --ym 2025-01 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite --skip-fts
 ```
+
+> `bcd load` já cria as virtual tables `empresas_fts` e `estabelecimentos_fts`
+> consumidas pela [API](https://github.com/brazildata/api) em `/api/v1/companies?q=`.
+> Tokenizer `unicode61 remove_diacritics 2` (busca sem acento).
 
 ### Requisitos de Memória
 

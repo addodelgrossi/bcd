@@ -206,6 +206,13 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
+	// FTS5 virtual tables para busca textual em razão social / nome fantasia.
+	// Roda antes de ANALYZE/VACUUM para aproveitar journal_mode=MEMORY do bulk
+	// load; o VACUUM que vem depois compacta também as shadow tables do FTS.
+	if err := createFTSTables(ctx, db); err != nil {
+		return err
+	}
+
 	// ANALYZE atualiza estatísticas do query planner
 	logger.Info("analyzing tables for query optimization...")
 	if err := exec(ctx, db, `ANALYZE;`); err != nil {
@@ -253,6 +260,54 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 
 	logger.Info("indexes and optimizations completed")
 	logger.Info("database is ready for high-performance reads")
+	return nil
+}
+
+// createFTSTables cria as virtual tables FTS5 (empresas_fts e
+// estabelecimentos_fts) consumidas pela API em /api/v1/companies?q=<termo>.
+// Tokenizer unicode61 + remove_diacritics faz "sao paulo" casar com
+// "São Paulo". Drop-and-recreate é intencional: a RFB é batch mensal,
+// triggers de sync incremental só atrasariam o bulk load sem benefício real.
+func createFTSTables(ctx context.Context, db *sql.DB) error {
+	if flagSkipFTS {
+		logger.Info("skipping FTS5 virtual tables (--skip-fts)")
+		return nil
+	}
+	logger.Info("creating FTS5 virtual tables - this may take a few minutes...")
+
+	steps := []struct{ label, sql string }{
+		{"drop empresas_fts", `DROP TABLE IF EXISTS empresas_fts;`},
+		{"drop estabelecimentos_fts", `DROP TABLE IF EXISTS estabelecimentos_fts;`},
+		{"create empresas_fts", `CREATE VIRTUAL TABLE empresas_fts USING fts5(
+			cnpj_basico UNINDEXED,
+			razao_social,
+			tokenize = 'unicode61 remove_diacritics 2'
+		);`},
+		{"create estabelecimentos_fts", `CREATE VIRTUAL TABLE estabelecimentos_fts USING fts5(
+			cnpj_basico UNINDEXED,
+			cnpj_ordem UNINDEXED,
+			cnpj_dv UNINDEXED,
+			nome_fantasia,
+			tokenize = 'unicode61 remove_diacritics 2'
+		);`},
+		{"populate empresas_fts", `INSERT INTO empresas_fts(cnpj_basico, razao_social)
+			SELECT cnpj_basico, razao_social
+			  FROM empresas
+			 WHERE razao_social IS NOT NULL AND razao_social <> '';`},
+		{"populate estabelecimentos_fts", `INSERT INTO estabelecimentos_fts(cnpj_basico, cnpj_ordem, cnpj_dv, nome_fantasia)
+			SELECT cnpj_basico, cnpj_ordem, cnpj_dv, nome_fantasia
+			  FROM estabelecimentos
+			 WHERE nome_fantasia IS NOT NULL AND nome_fantasia <> '';`},
+		{"optimize empresas_fts", `INSERT INTO empresas_fts(empresas_fts) VALUES('optimize');`},
+		{"optimize estabelecimentos_fts", `INSERT INTO estabelecimentos_fts(estabelecimentos_fts) VALUES('optimize');`},
+	}
+	for _, s := range steps {
+		logger.Info("fts step", slog.String("step", s.label))
+		if err := exec(ctx, db, s.sql); err != nil {
+			return fmt.Errorf("fts %s: %w", s.label, err)
+		}
+	}
+	logger.Info("fts5 tables ready")
 	return nil
 }
 
