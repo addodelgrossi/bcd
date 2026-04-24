@@ -198,6 +198,9 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 		// Sócios — lookups por empresa e busca reversa por CPF ofuscado.
 		`CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);`,
 		`CREATE INDEX IF NOT EXISTS idx_socios_cpf ON socios(cnpj_cpf_socio);`,
+		// Lookup reverso por representante legal — consumido pelo
+		// RepresentativeRelator no grafo de relações da API.
+		`CREATE INDEX IF NOT EXISTS idx_socios_representante ON socios(representante_legal);`,
 	}
 	for _, q := range stmts {
 		logger.Info("creating index", slog.String("stmt", q))
