@@ -144,3 +144,23 @@ CREATE INDEX IF NOT EXISTS idx_estab_situacao_pk ON estabelecimentos(situacao_ca
 -- Indices para socios (consultas por empresa e por CPF)
 CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);
 CREATE INDEX IF NOT EXISTS idx_socios_cpf ON socios(cnpj_cpf_socio);
+
+-- =============================================================================
+-- FTS5 (virtual tables) — criadas automaticamente pelo `bcd load`.
+-- Nao use este arquivo para recria-las manualmente; rode `bcd load` (ou o
+-- script scripts/setup_fts.sql do repo brazildata/api em bancos legados).
+--
+-- Tokenizer unicode61 + remove_diacritics faz "sao paulo" casar com "Sao Paulo".
+-- =============================================================================
+-- CREATE VIRTUAL TABLE empresas_fts USING fts5(
+--     cnpj_basico UNINDEXED,
+--     razao_social,
+--     tokenize = 'unicode61 remove_diacritics 2'
+-- );
+-- CREATE VIRTUAL TABLE estabelecimentos_fts USING fts5(
+--     cnpj_basico UNINDEXED,
+--     cnpj_ordem UNINDEXED,
+--     cnpj_dv UNINDEXED,
+--     nome_fantasia,
+--     tokenize = 'unicode61 remove_diacritics 2'
+-- );
