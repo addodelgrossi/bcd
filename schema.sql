@@ -144,6 +144,8 @@ CREATE INDEX IF NOT EXISTS idx_estab_situacao_pk ON estabelecimentos(situacao_ca
 -- Indices para socios (consultas por empresa e por CPF)
 CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);
 CREATE INDEX IF NOT EXISTS idx_socios_cpf ON socios(cnpj_cpf_socio);
+-- Lookup reverso por representante legal (consumido pelo grafo na API).
+CREATE INDEX IF NOT EXISTS idx_socios_representante ON socios(representante_legal);
 
 -- =============================================================================
 -- FTS5 (virtual tables) — criadas automaticamente pelo `bcd load`.
