@@ -123,16 +123,23 @@ CREATE TABLE IF NOT EXISTS motivos (
 -- INDICES
 -- =============================================================================
 
--- Indices para estabelecimentos (consultas mais comuns)
+-- Indices simples - lookups pontuais e filtros isolados
 CREATE INDEX IF NOT EXISTS idx_estab_cnpj ON estabelecimentos(cnpj_basico);
 CREATE INDEX IF NOT EXISTS idx_estab_mun_uf ON estabelecimentos(municipio, uf);
 CREATE INDEX IF NOT EXISTS idx_estab_uf ON estabelecimentos(uf);
 CREATE INDEX IF NOT EXISTS idx_estab_cnae ON estabelecimentos(cnae_fiscal_principal);
 CREATE INDEX IF NOT EXISTS idx_estab_situacao ON estabelecimentos(situacao_cadastral);
 CREATE INDEX IF NOT EXISTS idx_estab_cep ON estabelecimentos(cep);
-
--- Indice para matriz/filial (util para agregacoes)
 CREATE INDEX IF NOT EXISTS idx_estab_matriz_filial ON estabelecimentos(identificador_matriz_filial);
+
+-- Covering indexes para a listagem paginada da API (/api/v1/companies).
+-- A API filtra por uma coluna e ordena pelo PK composto; sem combinar
+-- filtro + PK o SQLite cai num sort em temp B-tree que estoura o timeout
+-- HTTP em filtros amplos (uf=SP -> ~20M linhas).
+CREATE INDEX IF NOT EXISTS idx_estab_uf_pk       ON estabelecimentos(uf, cnpj_basico, cnpj_ordem, cnpj_dv);
+CREATE INDEX IF NOT EXISTS idx_estab_mun_pk      ON estabelecimentos(municipio, cnpj_basico, cnpj_ordem, cnpj_dv);
+CREATE INDEX IF NOT EXISTS idx_estab_cnae_pk     ON estabelecimentos(cnae_fiscal_principal, cnpj_basico, cnpj_ordem, cnpj_dv);
+CREATE INDEX IF NOT EXISTS idx_estab_situacao_pk ON estabelecimentos(situacao_cadastral, cnpj_basico, cnpj_ordem, cnpj_dv);
 
 -- Indices para socios (consultas por empresa e por CPF)
 CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);

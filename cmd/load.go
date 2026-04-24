@@ -176,18 +176,26 @@ func createSchema(ctx context.Context, db *sql.DB) error {
 func createIndexes(ctx context.Context, db *sql.DB) error {
 	logger.Info("creating indexes - this may take several minutes...")
 	stmts := []string{
-		// Índices para estabelecimentos (consultas mais comuns)
+		// Índices simples — usados por lookups pontuais e filtros isolados.
 		`CREATE INDEX IF NOT EXISTS idx_estab_cnpj ON estabelecimentos(cnpj_basico);`,
 		`CREATE INDEX IF NOT EXISTS idx_estab_mun_uf ON estabelecimentos(municipio, uf);`,
 		`CREATE INDEX IF NOT EXISTS idx_estab_uf ON estabelecimentos(uf);`,
 		`CREATE INDEX IF NOT EXISTS idx_estab_cnae ON estabelecimentos(cnae_fiscal_principal);`,
 		`CREATE INDEX IF NOT EXISTS idx_estab_situacao ON estabelecimentos(situacao_cadastral);`,
 		`CREATE INDEX IF NOT EXISTS idx_estab_cep ON estabelecimentos(cep);`,
-
-		// Índice para matriz/filial (útil para agregações)
 		`CREATE INDEX IF NOT EXISTS idx_estab_matriz_filial ON estabelecimentos(identificador_matriz_filial);`,
 
-		// Índices para socios (consultas por empresa e por CPF)
+		// Covering indexes para listagem paginada da API (/api/v1/companies).
+		// A API filtra por uma coluna e ordena pelo PK composto para cursor
+		// pagination; sem combinar filtro + PK no mesmo índice o SQLite cai
+		// num sort em temp B-tree que estoura o timeout HTTP em filtros
+		// amplos (ex.: uf=SP ≈ 20 M linhas).
+		`CREATE INDEX IF NOT EXISTS idx_estab_uf_pk ON estabelecimentos(uf, cnpj_basico, cnpj_ordem, cnpj_dv);`,
+		`CREATE INDEX IF NOT EXISTS idx_estab_mun_pk ON estabelecimentos(municipio, cnpj_basico, cnpj_ordem, cnpj_dv);`,
+		`CREATE INDEX IF NOT EXISTS idx_estab_cnae_pk ON estabelecimentos(cnae_fiscal_principal, cnpj_basico, cnpj_ordem, cnpj_dv);`,
+		`CREATE INDEX IF NOT EXISTS idx_estab_situacao_pk ON estabelecimentos(situacao_cadastral, cnpj_basico, cnpj_ordem, cnpj_dv);`,
+
+		// Sócios — lookups por empresa e busca reversa por CPF ofuscado.
 		`CREATE INDEX IF NOT EXISTS idx_socios_cnpj ON socios(cnpj_basico);`,
 		`CREATE INDEX IF NOT EXISTS idx_socios_cpf ON socios(cnpj_cpf_socio);`,
 	}
