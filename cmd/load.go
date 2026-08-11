@@ -222,23 +222,23 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 		return err
 	}
 
-	// VACUUM otimiza o arquivo físico (remove espaço livre, desfragmenta)
-	// Pode ser pulado em ambientes com pouca memória usando --skip-vacuum
+	// VACUUM otimiza o arquivo físico (remove espaço livre, desfragmenta).
+	// O SQLite cria uma cópia temporária do banco; use --skip-vacuum quando
+	// não houver espaço livre para manter as duas simultaneamente.
 	if !flagSkipVacuum {
 		logger.Info("vacuuming database - this may take a while...")
-		logger.Info("note: VACUUM requires available memory (~2x database size)")
-		logger.Info("if you encounter out-of-memory errors, use --skip-vacuum flag")
-		
-		// Reduzir cache temporariamente para liberar memória para VACUUM
-		// VACUUM precisa de memória para criar uma cópia do banco
+		logger.Info("note: VACUUM needs free disk space for a temporary copy of the database")
+		logger.Info("if disk space is insufficient, use --skip-vacuum")
+
+		// Reduzir o cache durante a cópia para não pressionar a memória.
 		if err := exec(ctx, db, fmt.Sprintf(`PRAGMA cache_size=%d;`, cacheSize16MB)); err != nil {
 			return err
 		}
-		
+
 		if err := exec(ctx, db, `VACUUM;`); err != nil {
-			return fmt.Errorf("VACUUM failed - try using --skip-vacuum flag: %w", err)
+			return fmt.Errorf("VACUUM failed; check free disk space or use --skip-vacuum: %w", err)
 		}
-		
+
 		logger.Info("vacuum completed successfully")
 	} else {
 		logger.Info("skipping VACUUM operation (--skip-vacuum enabled)")
@@ -249,10 +249,10 @@ func createIndexes(ctx context.Context, db *sql.DB) error {
 	// IMPORTANTE: Alguns PRAGMAs precisam fechar/reabrir a conexão
 	logger.Info("optimizing database for read performance...")
 	optimizeForReads := []string{
-		`PRAGMA journal_mode=WAL;`,    // WAL mode para reads concorrentes
-		`PRAGMA synchronous=NORMAL;`,  // Balanço segurança/performance
-		`PRAGMA temp_store=MEMORY;`,   // Mantém temp em RAM
-		`PRAGMA mmap_size=268435456;`, // 256MB memory-mapped I/O
+		`PRAGMA journal_mode=WAL;`,                          // WAL mode para reads concorrentes
+		`PRAGMA synchronous=NORMAL;`,                        // Balanço segurança/performance
+		`PRAGMA temp_store=MEMORY;`,                         // Mantém temp em RAM
+		`PRAGMA mmap_size=268435456;`,                       // 256MB memory-mapped I/O
 		fmt.Sprintf(`PRAGMA cache_size=%d;`, cacheSize64MB), // Restaurar 64MB de cache
 	}
 	for _, q := range optimizeForReads {
@@ -467,6 +467,7 @@ func loadEmpresas(ctx context.Context, db *sql.DB, path string) error {
 	}
 	return txInsert(ctx, db, "empresas", cols, func(emit func([]any) error) error {
 		lineNum := 0
+		lastValidCNPJ := ""
 		for {
 			rec, err := r.Read()
 			lineNum++
@@ -494,6 +495,17 @@ func loadEmpresas(ctx context.Context, db *sql.DB, path string) error {
 			// Campo 1: RAZÃO SOCIAL - TEXT, obrigatório
 			razaoSocial := strings.TrimSpace(rec[1])
 			if razaoSocial == "" {
+				// The 2026-08 RFB snapshot contains one malformed duplicate
+				// immediately after the valid row for the same CNPJ. Skipping
+				// only an adjacent duplicate preserves the canonical row while
+				// still failing closed if a company's sole row lacks its name.
+				if cnpjBasico == lastValidCNPJ {
+					logger.Warn("skipping malformed duplicate company row",
+						slog.String("file", filepath.Base(path)),
+						slog.Int("line", lineNum),
+						slog.String("cnpj_basico", cnpjBasico))
+					continue
+				}
 				return fmt.Errorf("line %d: razao_social cannot be empty", lineNum)
 			}
 			vals[1] = razaoSocial
@@ -543,6 +555,7 @@ func loadEmpresas(ctx context.Context, db *sql.DB, path string) error {
 			if err := emit(vals); err != nil {
 				return fmt.Errorf("line %d: %w", lineNum, err)
 			}
+			lastValidCNPJ = cnpjBasico
 		}
 	})
 }

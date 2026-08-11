@@ -53,7 +53,7 @@ func init() {
 	RootCmd.PersistentFlags().StringVar(&flagYearMonth, "ym", "", "ano-mês (YYYY-MM), ex: 2025-10 (auto-detecta se omitido no download)")
 	RootCmd.PersistentFlags().StringVar(&flagWorkdir, "workdir", "", "diretório de trabalho (default /tmp/cnpj_rf)")
 	RootCmd.PersistentFlags().StringVar(&flagOutDB, "out", "", "arquivo SQLite de saída (default ./cnpj.sqlite)")
-	RootCmd.PersistentFlags().BoolVar(&flagSkipVacuum, "skip-vacuum", false, "pula a operação VACUUM (útil em ambientes com pouca memória)")
+	RootCmd.PersistentFlags().BoolVar(&flagSkipVacuum, "skip-vacuum", false, "pula a operação VACUUM (útil quando não há espaço para uma cópia temporária do banco)")
 	RootCmd.PersistentFlags().BoolVar(&flagSkipFTS, "skip-fts", false, "pula a criação das virtual tables FTS5 (empresas_fts, estabelecimentos_fts)")
 	RootCmd.PersistentFlags().StringVar(&flagShareToken, "share-token", "YggdBLfdninEJX9", "Nextcloud share token")
 	RootCmd.PersistentFlags().StringVar(&flagMode, "mode", "zip", "modo de download/extração: 'zip' ou 'tar'")

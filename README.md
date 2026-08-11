@@ -49,7 +49,7 @@ go build -o bcd
 # 3) Carregar no SQLite (gera ./cnpj.sqlite por padrão)
 ./bcd load     --ym 2025-01 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite
 
-# 3a) Se encontrar erro de memória, use --skip-vacuum
+# 3a) Se não houver disco para a cópia temporária do VACUUM, use --skip-vacuum
 ./bcd load     --ym 2025-01 --workdir /tmp/cnpj_rf --out ./cnpj.sqlite --skip-vacuum
 
 # 3b) Para pular a criação das FTS5 (busca textual), --skip-fts
@@ -61,24 +61,27 @@ go build -o bcd
 > consumidas pela [API](https://github.com/brazildata/api) em `/api/v1/companies?q=`.
 > Tokenizer `unicode61 remove_diacritics 2` (busca sem acento).
 
-### Requisitos de Memória
+### Requisitos de Memória e Disco
 
-O processo de load requer memória suficiente, especialmente durante a operação **VACUUM**:
+O processo de load requer memória para os caches e espaço em disco para os ZIPs, CSVs e o
+SQLite em construção:
 
 - **Mínimo recomendado:** 8GB de RAM
 - **Ideal:** 16GB+ de RAM
 - **VACUUM desabilitado:** 4GB de RAM pode ser suficiente
+- **VACUUM habilitado:** além do banco final, reserve espaço para uma cópia temporária de
+  tamanho semelhante
 
-**Se você encontrar erro "out of memory (7)":**
+**Se não houver espaço para a cópia temporária:**
 
 ```bash
-# Use a flag --skip-vacuum para pular a otimização VACUUM
+# Pule a compactação VACUUM; o banco continua funcional
 ./bcd load --ym 2025-01 --workdir /tmp/cnpj_rf --skip-vacuum
 ```
 
 > ⚠️ **Nota:** Pular o VACUUM resultará em um arquivo `.sqlite` maior (~20-30% maior), mas o banco será totalmente funcional.
 >
-> Você pode executar VACUUM manualmente depois em uma máquina com mais memória:
+> Você pode executar VACUUM manualmente depois em uma máquina com mais espaço em disco:
 > ```bash
 > sqlite3 cnpj.sqlite "VACUUM;"
 > ```

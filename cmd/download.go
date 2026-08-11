@@ -25,7 +25,7 @@ type davMultistatus struct {
 }
 
 type davResponse struct {
-	Href    string      `xml:"href"`
+	Href     string      `xml:"href"`
 	Propstat davPropstat `xml:"propstat"`
 }
 
@@ -166,8 +166,9 @@ func downloadZips() error {
 	if err := os.MkdirAll(zdir, 0o755); err != nil {
 		return err
 	}
-	// parallel downloads
-	n := runtime.NumCPU() * 2
+	// Keep concurrency deliberately conservative. The RFB endpoint throttles
+	// large parallel batches and can leave every transfer stalled.
+	n := min(runtime.NumCPU()*2, 4)
 	sem := make(chan struct{}, n)
 	wg := sync.WaitGroup{}
 	errs := make(chan error, len(zips))
@@ -230,11 +231,28 @@ func httpDownload(url, out string) error {
 	if resp.StatusCode != 200 {
 		return fmt.Errorf("GET %s: %s", url, resp.Status)
 	}
-	f, err := os.Create(out)
+	partial := out + ".part"
+	f, err := os.Create(partial)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = f.Close() }()
-	_, err = io.Copy(f, resp.Body)
-	return err
+	written, copyErr := io.Copy(f, resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
+		_ = os.Remove(partial)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(partial)
+		return closeErr
+	}
+	if resp.ContentLength >= 0 && written != resp.ContentLength {
+		_ = os.Remove(partial)
+		return fmt.Errorf("GET %s: downloaded %d bytes, expected %d", url, written, resp.ContentLength)
+	}
+	if err := os.Rename(partial, out); err != nil {
+		_ = os.Remove(partial)
+		return err
+	}
+	return nil
 }
